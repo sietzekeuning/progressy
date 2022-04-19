@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Support\Facades\Http;
+use GrahamCampbell\GitHub\Facades\GitHub;
 
 class AuthorizationController extends Controller
 {
@@ -10,12 +10,7 @@ class AuthorizationController extends Controller
     {
         $sessionCode = request('code');
 
-        return Http::post('https://github.com/login/oauth/access_token', [
-            'client_id'     => env('GITHUB_CLIENT_ID'),
-            'client_secret' => env('GITHUB_SECRET'),
-            'code'          => $sessionCode,
-            'accept'        => 'json'
-        ]);
+        print_r(GitHub::me()->organizations());
 
         return 'success';
     }
