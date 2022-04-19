@@ -18,7 +18,7 @@ class AuthorizationController extends Controller
                 'code'          => $sessionCode,
             ]);
 
-        dd($result);
+        dd($result->json());
 
         GitHub::authenticate($result);
         print_r(GitHub::me());
