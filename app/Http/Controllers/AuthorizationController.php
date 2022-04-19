@@ -10,7 +10,8 @@ class AuthorizationController extends Controller
     {
         $sessionCode = request('code');
 
-        print_r(GitHub::me()->organizations());
+        // GitHub::connection('app');
+        print_r(GitHub::me());
 
         return 'success';
     }
