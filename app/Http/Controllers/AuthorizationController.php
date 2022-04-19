@@ -11,14 +11,14 @@ class AuthorizationController extends Controller
     {
         $sessionCode = request('code');
 
-        $result = Http::post('https://github.com/login/oauth/access_token', [
-            'client_id'     => env('GITHUB_CLIENT_ID'),
-            'client_secret' => env('GITHUB_SECRET'),
-            'code'          => $sessionCode,
-            'accept'        => 'json'
-        ]);
+        $result = Http::withHeaders(['Accept' => 'application/vnd.github.v3+json'])
+            ->post('https://github.com/login/oauth/access_token', [
+                'client_id'     => env('GITHUB_CLIENT_ID'),
+                'client_secret' => env('GITHUB_SECRET'),
+                'code'          => $sessionCode,
+            ]);
 
-        dd($result->json());
+        dd($result);
 
         GitHub::authenticate($result);
         print_r(GitHub::me());
