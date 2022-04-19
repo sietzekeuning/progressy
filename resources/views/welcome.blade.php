@@ -21,6 +21,6 @@
         </style>
     </head>
     <body class="antialiased">
-        <a href="https://github.com/login/oauth/authorize?client_id=9acc5cc50910cbee93eb&scope=repo">Login</a>
+        <a href="https://github.com/login/oauth/authorize?client_id={{ env('GITHUB_CLIENT_ID') }}&scope=repo">Login</a>
     </body>
 </html>
