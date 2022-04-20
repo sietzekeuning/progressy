@@ -20,7 +20,7 @@ class AuthorizationController extends Controller
 
         $token = $result->json()['access_token'];
 
-        GitHub::authenticate($token);
+        GitHub::authenticate($token, 'token');
         print_r(GitHub::me());
 
         return 'success';
