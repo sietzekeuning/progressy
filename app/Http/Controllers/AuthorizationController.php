@@ -22,6 +22,7 @@ class AuthorizationController extends Controller
 
         GitHub::authenticate($token, env('GITHUB_SECRET'), 'bearer');
         print_r(GitHub::me());
+        print_r(GitHub::organisations());
 
         return 'success';
     }
