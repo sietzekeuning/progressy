@@ -1,0 +1,46 @@
+{
+    "appId": "com.progressy.app",
+    "productName": "Progressy",
+    "directories": {
+        "output": "release"
+    },
+    "files": [
+        "dist/**/*",
+        "package.json",
+        "node_modules/@octokit/**/*",
+        "node_modules/auto-launch/**/*",
+        "node_modules/electron-store/**/*"
+    ],
+  "win": {
+    "target": ["nsis", "portable"]
+  },
+  "mac": {
+    "target": ["dmg", "zip"],
+    "category": "public.app-category.developer-tools",
+    "icon": "src/assets/icons.icns"
+  },
+    "linux": {
+        "target": ["AppImage", "deb"],
+        "category": "Development"
+    },
+    "nsis": {
+        "oneClick": false,
+        "allowToChangeInstallationDirectory": true,
+        "createDesktopShortcut": true,
+        "createStartMenuShortcut": true
+    },
+    "dmg": {
+        "contents": [
+            {
+                "x": 110,
+                "y": 150
+            },
+            {
+                "x": 240,
+                "y": 150,
+                "type": "link",
+                "path": "/Applications"
+            }
+        ]
+    }
+}
