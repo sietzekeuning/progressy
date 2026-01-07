@@ -73,8 +73,8 @@ async function handleLogin() {
 .login-card {
   background: #161b22;
   border: 1px solid #30363d;
-  border-radius: 8px;
-  padding: 2rem;
+  border-radius: 6px;
+  padding: 1.25rem;
   width: 100%;
   max-width: 400px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
@@ -82,36 +82,36 @@ async function handleLogin() {
 
 h1 {
   color: #f0f6fc;
-  margin-bottom: 0.5rem;
-  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+  font-size: 1.25rem;
 }
 
 .subtitle {
   color: #8b949e;
-  margin-bottom: 2rem;
-  font-size: 0.9rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.85rem;
 }
 
 .form-group {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 label {
   display: block;
   color: #c9d1d9;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
+  margin-bottom: 0.375rem;
+  font-size: 0.85rem;
   font-weight: 500;
 }
 
 input {
   width: 100%;
-  padding: 0.75rem;
+  padding: 0.6rem;
   background: #0d1117;
   border: 1px solid #30363d;
   border-radius: 6px;
   color: #c9d1d9;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   transition: border-color 0.2s;
 }
 
@@ -123,8 +123,8 @@ input:focus {
 small {
   display: block;
   color: #8b949e;
-  margin-top: 0.5rem;
-  font-size: 0.8rem;
+  margin-top: 0.375rem;
+  font-size: 0.75rem;
 }
 
 small a {
@@ -138,19 +138,19 @@ small a:hover {
 
 small code {
   background: #21262d;
-  padding: 0.2rem 0.4rem;
+  padding: 0.15rem 0.3rem;
   border-radius: 3px;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
 }
 
 .btn-primary {
   width: 100%;
-  padding: 0.75rem;
+  padding: 0.6rem;
   background: #238636;
   color: white;
   border: none;
   border-radius: 6px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.2s;
@@ -166,11 +166,11 @@ small code {
 }
 
 .error {
-  margin-top: 1rem;
-  padding: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.6rem;
   background: #da3633;
   color: white;
   border-radius: 6px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 </style>

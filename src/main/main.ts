@@ -28,6 +28,53 @@ let runningActions: Map<string, any> = new Map()
 let lastJobDetailsFetch: Map<string, number> = new Map() // Track when we last fetched job details
 const JOB_DETAILS_CACHE_MS = 30000 // Cache job details for 30 seconds
 
+function updateTrayMenu() {
+    if (!tray) return
+
+    const token = store.get('githubToken') as string | undefined
+    const menuItems: Electron.MenuItemConstructorOptions[] = [
+        {
+            label: 'Show Window',
+            click: () => {
+                if (mainWindow) {
+                    mainWindow.show()
+                } else {
+                    createMainWindow()
+                }
+            },
+        },
+    ]
+
+    if (token) {
+        menuItems.push({
+            label: 'Disconnect',
+            click: async () => {
+                store.set('githubToken', '')
+                octokit = null
+                stopActionMonitoring()
+                updateTrayMenu()
+                if (mainWindow) {
+                    mainWindow.reload()
+                }
+            },
+        })
+    }
+
+    menuItems.push({
+        type: 'separator',
+    })
+
+    menuItems.push({
+        label: 'Quit',
+        click: () => {
+            app.quit()
+        },
+    })
+
+    const contextMenu = Menu.buildFromTemplate(menuItems)
+    tray.setContextMenu(contextMenu)
+}
+
 // Configure auto-launch (Windows only for now)
 let autoLauncher: AutoLaunch | null = null
 if (process.platform === 'win32') {
@@ -42,54 +89,103 @@ if (process.platform === 'win32') {
 
 function createTray() {
     let icon = nativeImage.createEmpty()
+    const appPath = app.getAppPath()
+    const fs = require('fs')
 
-    // On macOS, use template icons for menu bar (works with light/dark mode)
+    // On macOS, try template icons first, then fall back to regular icon
     if (process.platform === 'darwin') {
         // Try to load template icons (1x and 2x for retina)
         const templatePaths = [
-            path.join(__dirname, '../assets/iconTemplate@2x.png'),
+            // Development paths (when running from project root)
+            path.join(appPath, 'src/assets/iconTemplate@2x.png'),
             path.join(__dirname, '../../src/assets/iconTemplate@2x.png'),
-            path.join(process.resourcesPath || __dirname, 'assets/iconTemplate@2x.png'),
-            path.join(__dirname, '../assets/iconTemplate.png'),
+            path.join(__dirname, '../assets/iconTemplate@2x.png'),
+            // Production paths (when packaged)
+            path.join(process.resourcesPath || appPath, 'assets/iconTemplate@2x.png'),
+            path.join(process.resourcesPath || appPath, 'src/assets/iconTemplate@2x.png'),
+            // Try 1x version if 2x not found
+            path.join(appPath, 'src/assets/iconTemplate.png'),
             path.join(__dirname, '../../src/assets/iconTemplate.png'),
-            path.join(process.resourcesPath || __dirname, 'assets/iconTemplate.png'),
+            path.join(__dirname, '../assets/iconTemplate.png'),
+            path.join(process.resourcesPath || appPath, 'assets/iconTemplate.png'),
+            path.join(process.resourcesPath || appPath, 'src/assets/iconTemplate.png'),
         ]
 
         for (const iconPath of templatePaths) {
-            const testIcon = nativeImage.createFromPath(iconPath)
-            if (!testIcon.isEmpty()) {
-                icon = testIcon
-                // Set as template image for macOS menu bar
-                icon.setTemplateImage(true)
-                break
+            if (fs.existsSync(iconPath)) {
+                const testIcon = nativeImage.createFromPath(iconPath)
+                if (!testIcon.isEmpty()) {
+                    icon = testIcon
+                    // Set as template image for macOS menu bar
+                    icon.setTemplateImage(true)
+                    console.log('Loaded tray icon (template) from:', iconPath)
+                    break
+                }
+            }
+        }
+
+        // If template icon didn't work or is empty, try regular icon
+        if (icon.isEmpty()) {
+            const regularIconPaths = [
+                path.join(appPath, 'src/assets/icon.png'),
+                path.join(__dirname, '../../src/assets/icon.png'),
+                path.join(__dirname, '../assets/icon.png'),
+                path.join(process.resourcesPath || appPath, 'assets/icon.png'),
+                path.join(process.resourcesPath || appPath, 'src/assets/icon.png'),
+            ]
+
+            for (const iconPath of regularIconPaths) {
+                if (fs.existsSync(iconPath)) {
+                    const testIcon = nativeImage.createFromPath(iconPath)
+                    if (!testIcon.isEmpty()) {
+                        // Resize to appropriate size for menu bar (22x22)
+                        const size = testIcon.getSize()
+                        if (size.width > 22 || size.height > 22) {
+                            icon = testIcon.resize({ width: 22, height: 22 })
+                        } else {
+                            icon = testIcon
+                        }
+                        console.log('Loaded tray icon (regular) from:', iconPath)
+                        break
+                    }
+                }
             }
         }
     } else {
         // For Windows/Linux, try regular icon paths
         const iconPaths = [
-            path.join(__dirname, '../assets/icon.png'),
+            // Development paths
+            path.join(appPath, 'src/assets/icon.png'),
             path.join(__dirname, '../../src/assets/icon.png'),
-            path.join(process.resourcesPath || __dirname, 'assets/icon.png'),
+            path.join(__dirname, '../assets/icon.png'),
+            // Production paths
+            path.join(process.resourcesPath || appPath, 'assets/icon.png'),
+            path.join(process.resourcesPath || appPath, 'src/assets/icon.png'),
         ]
 
         for (const iconPath of iconPaths) {
-            const testIcon = nativeImage.createFromPath(iconPath)
-            if (!testIcon.isEmpty()) {
-                icon = testIcon
-                break
+            if (fs.existsSync(iconPath)) {
+                const testIcon = nativeImage.createFromPath(iconPath)
+                if (!testIcon.isEmpty()) {
+                    icon = testIcon
+                    console.log('Loaded tray icon from:', iconPath)
+                    break
+                }
             }
         }
     }
 
     // Fallback: create a simple visible icon if none found
     if (icon.isEmpty()) {
+        console.warn('No tray icon found, using fallback icon')
         const size = 22
         const iconBuffer = Buffer.alloc(size * size * 4)
+        // Create a visible gray square
         for (let i = 0; i < iconBuffer.length; i += 4) {
-            iconBuffer[i] = 60
-            iconBuffer[i + 1] = 60
-            iconBuffer[i + 2] = 60
-            iconBuffer[i + 3] = 255
+            iconBuffer[i] = 100 // R
+            iconBuffer[i + 1] = 100 // G
+            iconBuffer[i + 2] = 100 // B
+            iconBuffer[i + 3] = 255 // A
         }
         icon = nativeImage.createFromBuffer(iconBuffer, { width: size, height: size })
         if (process.platform === 'darwin') {
@@ -97,29 +193,16 @@ function createTray() {
         }
     }
 
-    tray = new Tray(icon)
+    try {
+        tray = new Tray(icon)
+        console.log('Tray created successfully with icon size:', icon.getSize())
+    } catch (error) {
+        console.error('Failed to create tray:', error)
+        return
+    }
 
-    const contextMenu = Menu.buildFromTemplate([
-        {
-            label: 'Show Window',
-            click: () => {
-                if (mainWindow) {
-                    mainWindow.show()
-                } else {
-                    createMainWindow()
-                }
-            },
-        },
-        {
-            label: 'Quit',
-            click: () => {
-                app.quit()
-            },
-        },
-    ])
-
+    updateTrayMenu()
     tray.setToolTip('Progressy - GitHub Actions Monitor')
-    tray.setContextMenu(contextMenu)
     tray.on('click', () => {
         const token = store.get('githubToken') as string | undefined
         if (!token) {
@@ -693,19 +776,36 @@ function stopActionMonitoring() {
 }
 
 app.whenReady().then(() => {
-    // Set dock icon on macOS using icons.icns
+    // Set dock icon on macOS using icons.icns (optional, since dock is hidden)
     if (process.platform === 'darwin') {
+        const appPath = app.getAppPath()
+        const fs = require('fs')
         const dockIconPaths = [
-            path.join(__dirname, '../assets/icons.icns'),
+            // Try .icns first
+            path.join(process.resourcesPath || appPath, 'assets/icons.icns'),
+            path.join(process.resourcesPath || appPath, 'src/assets/icons.icns'),
+            path.join(appPath, 'src/assets/icons.icns'),
             path.join(__dirname, '../../src/assets/icons.icns'),
-            path.join(process.resourcesPath || __dirname, 'assets/icons.icns'),
+            path.join(__dirname, '../assets/icons.icns'),
+            // Fallback to PNG if .icns fails
+            path.join(process.resourcesPath || appPath, 'assets/icon.png'),
+            path.join(process.resourcesPath || appPath, 'src/assets/icon.png'),
+            path.join(appPath, 'src/assets/icon.png'),
+            path.join(__dirname, '../../src/assets/icon.png'),
+            path.join(__dirname, '../assets/icon.png'),
         ]
 
+        let dockIconSet = false
         for (const iconPath of dockIconPaths) {
-            const fs = require('fs')
             if (fs.existsSync(iconPath)) {
-                app.dock.setIcon(iconPath)
-                break
+                try {
+                    app.dock.setIcon(iconPath)
+                    dockIconSet = true
+                    break
+                } catch (error) {
+                    // Silently continue - dock icon is not critical since dock is hidden
+                    continue
+                }
             }
         }
 
@@ -750,6 +850,8 @@ ipcMain.handle('set-github-token', (_event, token: string) => {
         octokit = null
         stopActionMonitoring()
     }
+    // Update tray menu to show/hide disconnect option
+    updateTrayMenu()
     return true
 })
 

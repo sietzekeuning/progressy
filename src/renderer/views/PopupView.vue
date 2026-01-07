@@ -109,7 +109,7 @@ function handleClose() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem;
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid #30363d;
   background: #0d1117;
   -webkit-app-region: drag;
@@ -117,7 +117,7 @@ function handleClose() {
 
 .popup-header h2 {
   color: #f0f6fc;
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-weight: 600;
 }
 
@@ -125,11 +125,11 @@ function handleClose() {
   background: none;
   border: none;
   color: #8b949e;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   cursor: pointer;
   padding: 0;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -144,67 +144,67 @@ function handleClose() {
 .popup-content {
   flex: 1;
   overflow-y: auto;
-  padding: 1rem;
+  padding: 0.5rem;
 }
 
 .empty-state {
   text-align: center;
-  padding: 2rem;
+  padding: 1.5rem;
   color: #8b949e;
 }
 
 .actions-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.5rem;
 }
 
 .action-item {
   background: #0d1117;
   border: 1px solid #30363d;
   border-radius: 6px;
-  padding: 1rem;
+  padding: 0.6rem;
 }
 
 .action-info {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
 .action-name {
   color: #f0f6fc;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 500;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.2rem;
 }
 
 .repo-name {
   color: #8b949e;
-  font-size: 0.8rem;
-  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+  margin-bottom: 0.2rem;
 }
 
 .current-job {
   color: #58a6ff;
-  font-size: 0.75rem;
-  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  margin-top: 0.2rem;
   font-weight: 500;
 }
 
 .elapsed-time {
   color: #8b949e;
-  font-size: 0.75rem;
-  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  margin-top: 0.2rem;
 }
 
 .progress-section {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .progress-bar {
   flex: 1;
-  height: 6px;
+  height: 5px;
   background: #21262d;
   border-radius: 3px;
   overflow: hidden;
@@ -218,8 +218,8 @@ function handleClose() {
 
 .progress-text {
   color: #8b949e;
-  font-size: 0.8rem;
-  min-width: 40px;
+  font-size: 0.75rem;
+  min-width: 35px;
   text-align: right;
 }
 </style>
