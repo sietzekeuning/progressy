@@ -22,6 +22,7 @@ they never get in the way of the window underneath — until you move your curso
 | **Time-based progress** | The bar is measured against the median wall-clock time of the last 3 successful runs of that same workflow, so it shows `~2m 1s left` instead of a guess. No history yet? It falls back to completed jobs, or an indeterminate sweep. |
 | **Current step** | The job and step that GitHub is running right now, e.g. `deploy → Run php artisan migrate --force`. |
 | **Sticks around** | A finished run stays for 20 seconds — green for passed, red for failed — with a thin bar draining along the bottom edge, then slides away on its own. |
+| **Click to open** | Clicking a card opens that run on GitHub in your browser. |
 | **Dismissable** | The `×` gets rid of a card immediately, and `Clear all` clears the stack. A dismissed run stays gone; the next run shows up as normal. |
 | **Yours only, if you like** | Filter runs by who triggered them, and pick exactly which repositories to watch. |
 
@@ -97,8 +98,8 @@ far inside GitHub's 5,000 requests per hour.
 
   <img src="docs/window.png" alt="The Progressy window listing running workflows" width="440">
 
-- **Cards** appear on their own whenever a run starts. Hover one to interact with it, hit `×` to
-  dismiss it, or `Clear all` to clear the stack.
+- **Cards** appear on their own whenever a run starts. Hover one to interact with it, click it to
+  open that run on GitHub, hit `×` to dismiss it, or `Clear all` to clear the stack.
 
 ## Build it yourself
 

@@ -1,5 +1,11 @@
 <template>
-    <article class="card" :class="[`is-${action.state}`, { 'is-done': isDone }]">
+    <article
+        class="card"
+        :class="[`is-${action.state}`, { 'is-done': isDone, 'is-openable': !!action.url }]"
+        role="link"
+        :title="action.url ? 'Open this run on GitHub' : undefined"
+        @click="open"
+    >
         <span class="accent" aria-hidden="true"></span>
 
         <header class="card-head">
@@ -9,6 +15,13 @@
             </span>
 
             <h3 class="title" :title="action.name">{{ action.name }}</h3>
+
+            <svg class="external" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+                <path
+                    fill="currentColor"
+                    d="M3.75 2h3a.75.75 0 0 1 0 1.5h-3a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3a.75.75 0 0 1 1.5 0v3A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.5 0h3.5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V4.56L8.28 8.78a.75.75 0 0 1-1.06-1.06l4.22-4.22h-1.19a.75.75 0 0 1 0-1.5Z"
+                />
+            </svg>
 
             <span class="pill">
                 <span v-if="isRunning" class="pulse" aria-hidden="true"></span>
@@ -62,7 +75,16 @@ const props = defineProps<{
     now: number
 }>()
 
-defineEmits<{ (event: 'dismiss', key: string): void }>()
+const emit = defineEmits<{
+    (event: 'dismiss', key: string): void
+    (event: 'open', url: string): void
+}>()
+
+function open() {
+    if (props.action.url) {
+        emit('open', props.action.url)
+    }
+}
 
 const STATUS_LABELS: Record<string, string> = {
     queued: 'Queued',
@@ -190,6 +212,39 @@ const lingerFraction = computed(() => {
     color: #e6edf3;
     --accent: #4b93ff;
     --accent-soft: rgba(75, 147, 255, 0.16);
+    transition:
+        border-color 0.15s ease,
+        box-shadow 0.15s ease,
+        transform 0.15s ease;
+}
+
+/* The whole card opens the run on GitHub. */
+.card.is-openable {
+    cursor: pointer;
+}
+
+.card.is-openable:hover {
+    border-color: color-mix(in srgb, var(--accent) 40%, rgba(255, 255, 255, 0.09));
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.08) inset,
+        0 14px 34px -8px rgba(0, 0, 0, 0.75),
+        0 2px 8px -2px rgba(0, 0, 0, 0.5);
+}
+
+.card.is-openable:active {
+    transform: scale(0.994);
+}
+
+.external {
+    flex: none;
+    margin-left: -2px;
+    color: #8b949e;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.card.is-openable:hover .external {
+    opacity: 0.75;
 }
 
 .card.is-queued {

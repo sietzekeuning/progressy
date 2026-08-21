@@ -1226,7 +1226,7 @@ function startDemoMode() {
         currentStep: 'Run actions/checkout@v4',
         jobsTotal: 3,
         jobsCompleted: 1,
-        url: 'https://github.com',
+        url: 'https://github.com/sietzekeuning/vvw-site/actions/runs/32376222808',
         ...overrides,
     })
 

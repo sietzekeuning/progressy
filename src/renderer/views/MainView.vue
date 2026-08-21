@@ -34,7 +34,7 @@
                     <TransitionGroup v-else name="card" tag="div" class="cards" appear>
                         <div v-for="action in actions" :key="action.key" class="item">
                             <div class="item-inner">
-                                <ActionCard :action="action" :now="now" @dismiss="dismiss" />
+                                <ActionCard :action="action" :now="now" @dismiss="dismiss" @open="openRun" />
                             </div>
                         </div>
                     </TransitionGroup>
@@ -94,6 +94,12 @@ function toggleSettings() {
 function dismiss(key: string) {
     actions.value = actions.value.filter((action) => action.key !== key)
     window.electronAPI.dismissAction(key)
+}
+
+// Clicking a card opens that run on GitHub. The main process only lets
+// github.com URLs through, so a card can never send us anywhere else.
+function openRun(url: string) {
+    window.electronAPI.openGitHubUrl(url)
 }
 
 function clearAll() {
