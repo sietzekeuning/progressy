@@ -14,7 +14,9 @@
                 <span v-else class="dot"></span>
             </span>
 
-            <h3 class="title" :title="action.name">{{ action.name }}</h3>
+            <h3 class="title" :title="action.repo">
+                <span v-if="repoOwner" class="owner">{{ repoOwner }}/</span>{{ repoName }}
+            </h3>
 
             <svg class="external" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
                 <path
@@ -40,14 +42,14 @@
             </button>
         </header>
 
-        <p class="repo">
-            <svg class="repo-icon" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+        <p class="workflow">
+            <svg class="workflow-icon" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
                 <path
                     fill="currentColor"
-                    d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8Z"
+                    d="M0 1.75C0 .784.784 0 1.75 0h3.5C6.216 0 7 .784 7 1.75v3.5A1.75 1.75 0 0 1 5.25 7H4v4a1 1 0 0 0 1 1h4v-1.25C9 9.784 9.784 9 10.75 9h3.5c.966 0 1.75.784 1.75 1.75v3.5A1.75 1.75 0 0 1 14.25 16h-3.5A1.75 1.75 0 0 1 9 14.25v-.75H5A2.5 2.5 0 0 1 2.5 11V7h-.75A1.75 1.75 0 0 1 0 5.25Zm1.75-.25a.25.25 0 0 0-.25.25v3.5c0 .138.112.25.25.25h3.5a.25.25 0 0 0 .25-.25v-3.5a.25.25 0 0 0-.25-.25Zm9 9a.25.25 0 0 0-.25.25v3.5c0 .138.112.25.25.25h3.5a.25.25 0 0 0 .25-.25v-3.5a.25.25 0 0 0-.25-.25Z"
                 />
             </svg>
-            <span class="repo-name">{{ action.repo }}</span>
+            <span class="workflow-name" :title="action.name">{{ action.name }}</span>
             <span v-if="action.branch" class="branch">{{ action.branch }}</span>
         </p>
 
@@ -85,6 +87,18 @@ function open() {
         emit('open', props.action.url)
     }
 }
+
+// The repository is what you scan for first, so it leads the card. Its owner
+// is nearly always the same across runs, so it is there but dimmed.
+const repoOwner = computed(() => {
+    const parts = String(props.action.repo || '').split('/')
+    return parts.length > 1 ? parts.slice(0, -1).join('/') : ''
+})
+
+const repoName = computed(() => {
+    const parts = String(props.action.repo || '').split('/')
+    return parts[parts.length - 1] || ''
+})
 
 const STATUS_LABELS: Record<string, string> = {
     queued: 'Queued',
@@ -329,6 +343,11 @@ const lingerFraction = computed(() => {
     text-overflow: ellipsis;
 }
 
+.owner {
+    font-weight: 500;
+    color: #7d8590;
+}
+
 .pill {
     display: inline-flex;
     align-items: center;
@@ -381,7 +400,7 @@ const lingerFraction = computed(() => {
     background: rgba(255, 255, 255, 0.1);
 }
 
-.repo {
+.workflow {
     display: flex;
     align-items: center;
     gap: 5px;
@@ -391,12 +410,12 @@ const lingerFraction = computed(() => {
     color: #8b949e;
 }
 
-.repo-icon {
+.workflow-icon {
     flex: none;
     opacity: 0.7;
 }
 
-.repo-name {
+.workflow-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
