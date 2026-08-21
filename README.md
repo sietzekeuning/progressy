@@ -30,7 +30,7 @@ they never get in the way of the window underneath — until you move your curso
 
 ### macOS
 
-1. Download `Progressy-1.0.0-arm64.dmg` from the [releases](../../releases) (or build it yourself, see below).
+1. Download `Progressy-1.1.0-arm64.dmg` from the [releases](../../releases) (or build it yourself, see below).
 2. Open the DMG and drag **Progressy** into **Applications**. It is signed with a Developer ID and
    notarised by Apple, so it opens with a plain double-click — no right-click trick, no
    `xattr` incantation.
@@ -38,16 +38,16 @@ they never get in the way of the window underneath — until you move your curso
 
 ### Windows
 
-1. Download and run `Progressy Setup 1.0.0.exe`, or use the portable `.exe` if you would rather not
+1. Download and run `Progressy Setup 1.1.0.exe`, or use the portable `.exe` if you would rather not
    install anything.
 2. Progressy adds itself to the startup items and lives in the system tray.
 
 ### Linux
 
 ```bash
-chmod +x Progressy-1.0.0.AppImage && ./Progressy-1.0.0.AppImage
+chmod +x Progressy-1.1.0.AppImage && ./Progressy-1.1.0.AppImage
 # or, on Debian/Ubuntu:
-sudo dpkg -i progressy_1.0.0_amd64.deb
+sudo dpkg -i progressy_1.1.0_amd64.deb
 ```
 
 ## Connecting to GitHub
