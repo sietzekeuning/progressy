@@ -1,7 +1,13 @@
-# Progressy
+<p align="center">
+  <img src="docs/icon.png" alt="" width="112">
+</p>
 
-A small desktop app that watches your GitHub Actions and slides a card onto your screen the moment a
-workflow starts — with a progress bar based on how long that workflow usually takes.
+<h1 align="center">Progressy</h1>
+
+<p align="center">
+  A small desktop app that watches your GitHub Actions and slides a card onto your screen the moment
+  a workflow starts — with a progress bar based on how long that workflow usually takes.
+</p>
 
 <p align="center">
   <img src="docs/notifications.png" alt="Progressy notification cards showing a passed, a failed and a running workflow" width="416">
@@ -24,17 +30,10 @@ they never get in the way of the window underneath — until you move your curso
 ### macOS
 
 1. Download `Progressy-1.0.0-arm64.dmg` from the [releases](../../releases) (or build it yourself, see below).
-2. Open the DMG and drag **Progressy** into **Applications**.
-3. The app is not signed with an Apple Developer ID yet, so the first launch needs one extra step:
-   right-click **Progressy** → **Open** → **Open**. (Double-clicking gives "Progressy cannot be
-   opened because the developer cannot be verified".) If macOS refuses anyway, clear the quarantine
-   flag:
-
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/Progressy.app
-   ```
-
-4. Progressy has no dock icon — look for the menu bar icon at the top of the screen.
+2. Open the DMG and drag **Progressy** into **Applications**. It is signed with a Developer ID and
+   notarised by Apple, so it opens with a plain double-click — no right-click trick, no
+   `xattr` incantation.
+3. Progressy has no dock icon — look for the menu bar icon at the top of the screen.
 
 ### Windows
 

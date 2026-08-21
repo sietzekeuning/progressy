@@ -41,29 +41,69 @@ Check that it landed:
 security find-identity -v -p codesigning | grep "Developer ID Application"
 ```
 
-### 2. Create an app-specific password (once)
+### 2. Give notarisation something to authenticate with
 
-Notarisation signs in to Apple on your behalf, and your Apple ID password will not do:
+Apple needs credentials to accept the upload; your Apple ID password will not do. Pick either:
 
-1. Go to <https://appleid.apple.com> → **Sign-In and Security** → **App-Specific Passwords**.
-2. Generate one, name it something like `progressy-notarize`, and copy the value.
+**An App Store Connect API key** (no password to type, works unattended):
+
+1. <https://appstoreconnect.apple.com/access/integrations/api> → **Team Keys** → **+**.
+2. Give it the **Developer** role — that is enough to notarise.
+3. Download the `AuthKey_XXXXXXXXXX.p8`. It can only be downloaded once. Put it in
+   `~/.appstoreconnect/private_keys/`, which is where Apple's tools look by default.
+4. Note the **Key ID** and the **Issuer ID** shown on that page.
+
+```bash
+export APPLE_API_KEY=~/.appstoreconnect/private_keys/AuthKey_XXXXXXXXXX.p8
+export APPLE_API_KEY_ID=XXXXXXXXXX
+export APPLE_API_ISSUER=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+**Or an app-specific password:**
+
+1. <https://appleid.apple.com> → **Sign-In and Security** → **App-Specific Passwords** → generate one.
+2. Either export it, or keep it out of your shell history by storing it once:
+
+```bash
+xcrun notarytool store-credentials progressy --apple-id you@example.com --team-id 7Q6S4366TL
+export APPLE_KEYCHAIN_PROFILE=progressy
+```
+
+Check the credentials before spending a whole build on them:
+
+```bash
+xcrun notarytool history --key ~/.appstoreconnect/private_keys/AuthKey_XXXXXXXXXX.p8 \
+  --key-id XXXXXXXXXX --issuer xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+Anything other than an authentication error means they work.
 
 ### 3. Build
 
 ```bash
-export APPLE_ID="your@appleid.email"
-export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
-export APPLE_TEAM_ID="7Q6S4366TL"
 npm run package:mac
 ```
 
-electron-builder signs with the Developer ID certificate, uploads the app to Apple, waits for the
-result, and staples the ticket to the DMG so it also works offline. Expect the notarisation step to
-add a few minutes to the build.
+electron-builder signs with the Developer ID certificate, uploads the **app** to Apple and waits for
+the verdict. Expect that to add a few minutes to the build.
 
-The team id is already in `electron-builder.json` under `mac.notarize`. If the environment variables
-are missing, the build still succeeds but logs `skipped macOS notarization` — that is the tell-tale
-that you would be shipping a build with the Gatekeeper prompt.
+It does not do the same for the DMG, and Gatekeeper assesses a downloaded disk image in its own
+right — so the app inside would be fine while opening the DMG still warned. One more step:
+
+```bash
+npm run notarize:dmg
+```
+
+That signs the disk image, submits it, staples the ticket and verifies the result.
+
+`electron-builder.json` has `mac.notarize: true`, which means the credentials come purely from the
+environment. Do not put `{ "teamId": "…" }` there while using an API key: `@electron/notarize` counts
+a `teamId` as password credentials and refuses the build with *"Cannot use password credentials, API
+key credentials and keychain credentials at once"*. The app-specific-password route is the one that
+needs it — for that, set `"notarize": { "teamId": "7Q6S4366TL" }` instead.
+
+If no credentials are set at all, the build still succeeds but logs `skipped macOS notarization` —
+that is the tell-tale that you would be shipping a build with the Gatekeeper prompt.
 
 ### 4. Verify before releasing
 

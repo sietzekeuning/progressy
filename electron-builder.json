@@ -27,9 +27,7 @@
         "icon": "src/assets/icons.icns",
         "hardenedRuntime": true,
         "gatekeeperAssess": false,
-        "notarize": {
-            "teamId": "7Q6S4366TL"
-        }
+        "notarize": true
     },
     "linux": {
         "target": [
