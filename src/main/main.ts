@@ -16,6 +16,68 @@ const GITHUB_CLIENT_SECRET = store.get('githubClientSecret') as string | undefin
 const REDIRECT_URI = 'http://localhost:3000/callback'
 const OAUTH_SCOPE = 'repo workflow'
 
+
+// How long a finished run keeps its card on screen before it slides away.
+const COMPLETED_LINGER_MS = 20000
+// How long a dismissed run stays dismissed. New runs get a new key, so they
+// always come back on their own.
+const DISMISSED_MEMORY_MS = 6 * 60 * 60 * 1000
+const JOB_DETAILS_CACHE_MS = 30000 // Cache job details for 30 seconds
+const EXPECTED_DURATION_CACHE_MS = 30 * 60 * 1000 // Re-measure a workflow's usual runtime twice an hour
+const EXPECTED_DURATION_SAMPLES = 3 // Take the last 3 successful runs as the yardstick
+const POLL_INTERVAL_MS = 15000
+const REPOS_TO_SCAN = 5
+const RUNS_PER_REPO = 5
+
+const VERBOSE = process.env.PROGRESSY_VERBOSE === '1'
+
+const POPUP_WIDTH = 384
+const POPUP_MARGIN = 16
+const MAIN_WINDOW_WIDTH = 440
+
+// The popup is a status HUD that lives on top of whatever the user is doing,
+// so it must keep ticking while the app itself is in the background. Without
+// this Chromium freezes its timers and animations the moment we lose focus.
+app.commandLine.appendSwitch('disable-background-timer-throttling')
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+
+type RunStatus = 'queued' | 'in_progress' | 'completed'
+
+type ActionState =
+    | 'queued'
+    | 'running'
+    | 'success'
+    | 'failure'
+    | 'cancelled'
+    | 'timed_out'
+    | 'skipped'
+    | 'action_required'
+    | 'neutral'
+
+interface TrackedRun {
+    key: string
+    repo: string
+    owner: string
+    repoName: string
+    runId: number
+    workflowId: number | null
+    name: string
+    branch: string | null
+    event: string | null
+    status: RunStatus
+    conclusion: string | null
+    startedAt: string
+    completedAtMs: number | null
+    durationMs: number | null
+    expectedDurationMs: number | null
+    currentJob: string | null
+    currentStep: string | null
+    jobsTotal: number
+    jobsCompleted: number
+    url: string
+}
+
 let tray: Tray | null = null
 let mainWindow: BrowserWindow | null = null
 let popupWindow: BrowserWindow | null = null
@@ -24,9 +86,15 @@ let oauthServer: http.Server | null = null
 let oauthState: string | null = null
 let octokit: Octokit | null = null
 let actionCheckInterval: NodeJS.Timeout | null = null
-let runningActions: Map<string, any> = new Map()
-let lastJobDetailsFetch: Map<string, number> = new Map() // Track when we last fetched job details
-const JOB_DETAILS_CACHE_MS = 30000 // Cache job details for 30 seconds
+let lingerInterval: NodeJS.Timeout | null = null
+let pointerWatchdog: NodeJS.Timeout | null = null
+let popupVisible = false
+let popupInteractive = false
+
+const runningActions: Map<string, TrackedRun> = new Map()
+const dismissedKeys: Map<string, number> = new Map() // key -> dismissed at
+const lastJobDetailsFetch: Map<string, number> = new Map() // Track when we last fetched job details
+const expectedDurationCache: Map<string, { value: number | null; fetchedAt: number }> = new Map()
 
 function updateTrayMenu() {
     if (!tray) return
@@ -433,6 +501,23 @@ function startOAuthFlow() {
     })
 }
 
+// ---------------------------------------------------------------------------
+// Windows
+// ---------------------------------------------------------------------------
+
+function resolveRendererPath(): string {
+    const fs = require('fs')
+    const appPath = app.getAppPath()
+    const candidates = [
+        path.join(appPath, 'dist/renderer/index.html'), // running from the project root
+        path.join(__dirname, '../renderer/index.html'), // __dirname is dist/main
+        path.join(__dirname, 'renderer/index.html'), // __dirname is dist
+        path.join(appPath, 'renderer/index.html'), // fallback
+    ]
+
+    return candidates.find((candidate: string) => fs.existsSync(candidate)) || candidates[0]
+}
+
 function createMainWindow() {
     // Show dock icon when window is opened (macOS)
     if (process.platform === 'darwin') {
@@ -440,11 +525,16 @@ function createMainWindow() {
     }
 
     mainWindow = new BrowserWindow({
-        width: 800,
-        height: 600,
+        width: MAIN_WINDOW_WIDTH,
+        height: 420,
+        minWidth: MAIN_WINDOW_WIDTH,
+        maxWidth: MAIN_WINDOW_WIDTH,
+        backgroundColor: '#0d1117',
+        titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            backgroundThrottling: false,
             preload: path.join(__dirname, 'preload.js'),
         },
         show: false,
@@ -458,27 +548,8 @@ function createMainWindow() {
 
     if (process.env.NODE_ENV === 'development') {
         mainWindow.loadURL('http://localhost:5173')
-        mainWindow.webContents.openDevTools()
     } else {
-        // Try multiple possible paths for the renderer
-        const appPath = app.getAppPath()
-        const possiblePaths = [
-            path.join(appPath, 'dist/renderer/index.html'), // Most common case: running from project root
-            path.join(__dirname, '../renderer/index.html'), // When __dirname is dist/main
-            path.join(__dirname, 'renderer/index.html'), // When __dirname is dist
-            path.join(appPath, 'renderer/index.html'), // Fallback
-        ]
-
-        // Try to load the first path that exists
-        const fs = require('fs')
-        let rendererPath = possiblePaths.find((p) => fs.existsSync(p))
-
-        if (!rendererPath) {
-            // Last resort: use the most likely path
-            rendererPath = possiblePaths[0]
-        }
-
-        mainWindow.loadFile(rendererPath)
+        mainWindow.loadFile(resolveRendererPath())
     }
 
     mainWindow.on('closed', () => {
@@ -494,69 +565,475 @@ function createMainWindow() {
     })
 
     // Log any errors from the renderer
-    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
         console.error('Failed to load:', validatedURL, errorCode, errorDescription)
     })
 
-    mainWindow.webContents.on('console-message', (event, level, message) => {
+    mainWindow.webContents.on('console-message', (_event, level, message) => {
         console.log(`[Renderer ${level}]:`, message)
     })
 }
 
-function createPopupWindow() {
-    if (popupWindow) {
+// ---------------------------------------------------------------------------
+// Popup window
+//
+// The popup is a transparent, click-through column pinned to the top-right of
+// the work area. Because nothing but the cards themselves is ever painted, the
+// container always fits the content exactly - no padding to guess at, and the
+// cards are free to animate in and out beyond their own bounds.
+// ---------------------------------------------------------------------------
+
+function getPopupBounds(): Electron.Rectangle {
+    const { workArea } = screen.getPrimaryDisplay()
+    const width = POPUP_WIDTH + POPUP_MARGIN * 2
+    const height = Math.max(240, workArea.height - POPUP_MARGIN)
+
+    return {
+        width,
+        height,
+        x: Math.round(workArea.x + workArea.width - width),
+        y: Math.round(workArea.y),
+    }
+}
+
+function setPopupInteractive(interactive: boolean) {
+    if (!popupWindow || popupWindow.isDestroyed()) {
         return
     }
 
-    const { width, height } = screen.getPrimaryDisplay().workAreaSize
-    const popupWidth = 400
-    const popupHeight = 300
+    if (interactive === popupInteractive) {
+        return
+    }
+
+    popupInteractive = interactive
+
+    if (interactive) {
+        popupWindow.setIgnoreMouseEvents(false)
+        startPointerWatchdog()
+    } else {
+        // `forward` keeps mousemove events flowing to the renderer while every
+        // other event passes straight through to whatever is underneath.
+        popupWindow.setIgnoreMouseEvents(true, { forward: true })
+        stopPointerWatchdog()
+    }
+}
+
+// Safety net: if the cursor leaves the window fast enough that the renderer
+// never sees the exit, the window would stay clickable and swallow clicks meant
+// for the app underneath. Poll the real cursor position while interactive.
+function startPointerWatchdog() {
+    if (pointerWatchdog) {
+        return
+    }
+
+    pointerWatchdog = setInterval(() => {
+        if (!popupWindow || popupWindow.isDestroyed() || !popupVisible) {
+            setPopupInteractive(false)
+            return
+        }
+
+        const cursor = screen.getCursorScreenPoint()
+        const bounds = popupWindow.getBounds()
+        const inside =
+            cursor.x >= bounds.x &&
+            cursor.x <= bounds.x + bounds.width &&
+            cursor.y >= bounds.y &&
+            cursor.y <= bounds.y + bounds.height
+
+        if (!inside) {
+            setPopupInteractive(false)
+        }
+    }, 400)
+}
+
+function stopPointerWatchdog() {
+    if (pointerWatchdog) {
+        clearInterval(pointerWatchdog)
+        pointerWatchdog = null
+    }
+}
+
+function ensurePopupWindow(): BrowserWindow {
+    if (popupWindow && !popupWindow.isDestroyed()) {
+        return popupWindow
+    }
 
     popupWindow = new BrowserWindow({
-        width: popupWidth,
-        height: popupHeight,
-        x: width - popupWidth - 20,
-        y: 20,
+        ...getPopupBounds(),
         frame: false,
-        alwaysOnTop: true,
-        skipTaskbar: true,
+        transparent: true,
+        backgroundColor: '#00000000',
+        hasShadow: false,
         resizable: false,
+        movable: false,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        skipTaskbar: true,
+        alwaysOnTop: true,
+        acceptFirstMouse: true,
+        show: false,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            backgroundThrottling: false,
             preload: path.join(__dirname, 'preload.js'),
         },
     })
 
+    popupWindow.setAlwaysOnTop(true, 'screen-saver')
+    popupWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    popupInteractive = true // force the next call through
+    setPopupInteractive(false)
+
     if (process.env.NODE_ENV === 'development') {
         popupWindow.loadURL('http://localhost:5173/#popup')
     } else {
-        const appPath = app.getAppPath()
-        const possiblePaths = [
-            path.join(appPath, 'dist/renderer/index.html'),
-            path.join(__dirname, '../renderer/index.html'),
-            path.join(__dirname, 'renderer/index.html'),
-            path.join(appPath, 'renderer/index.html'),
-        ]
-
-        const fs = require('fs')
-        const rendererPath = possiblePaths.find((p) => fs.existsSync(p)) || possiblePaths[0]
-
-        popupWindow.loadFile(rendererPath)
-        popupWindow.webContents.once('did-finish-load', () => {
-            popupWindow?.webContents.executeJavaScript("window.location.hash = 'popup'")
-        })
+        // The hash has to be part of the initial load: the renderer decides
+        // which view to mount from it, and it only reads it once.
+        popupWindow.loadFile(resolveRendererPath(), { hash: 'popup' })
     }
 
     popupWindow.on('closed', () => {
         popupWindow = null
+        popupVisible = false
+        stopPointerWatchdog()
     })
+
+    return popupWindow
+}
+
+function showPopupWindow() {
+    const win = ensurePopupWindow()
+
+    if (popupVisible && win.isVisible()) {
+        return
+    }
+
+    win.setBounds(getPopupBounds())
+    win.showInactive() // never steal focus from whatever the user is doing
+    win.setAlwaysOnTop(true, 'screen-saver')
+    popupVisible = true
 }
 
 function hidePopupWindow() {
-    if (popupWindow) {
-        popupWindow.close()
-        popupWindow = null
+    setPopupInteractive(false)
+    popupVisible = false
+
+    if (popupWindow && !popupWindow.isDestroyed() && popupWindow.isVisible()) {
+        popupWindow.hide()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Action state
+// ---------------------------------------------------------------------------
+
+function normalizeStatus(status: string | null | undefined): RunStatus {
+    switch (status) {
+        case 'completed':
+            return 'completed'
+        case 'in_progress':
+            return 'in_progress'
+        default:
+            // queued, waiting, requested, pending
+            return 'queued'
+    }
+}
+
+function median(values: number[]): number | null {
+    if (!values.length) {
+        return null
+    }
+
+    const sorted = [...values].sort((a, b) => a - b)
+    const middle = Math.floor(sorted.length / 2)
+
+    return sorted.length % 2
+        ? sorted[middle]
+        : Math.round((sorted[middle - 1] + sorted[middle]) / 2)
+}
+
+function actionState(action: TrackedRun): ActionState {
+    if (action.status !== 'completed') {
+        return action.status === 'in_progress' ? 'running' : 'queued'
+    }
+
+    switch (action.conclusion) {
+        case 'success':
+            return 'success'
+        case 'failure':
+        case 'startup_failure':
+            return 'failure'
+        case 'cancelled':
+        case 'stale':
+            return 'cancelled'
+        case 'timed_out':
+            return 'timed_out'
+        case 'skipped':
+            return 'skipped'
+        case 'action_required':
+            return 'action_required'
+        default:
+            return 'neutral'
+    }
+}
+
+function serializeAction(action: TrackedRun) {
+    return {
+        key: action.key,
+        repo: action.repo,
+        runId: action.runId,
+        name: action.name,
+        branch: action.branch,
+        event: action.event,
+        status: action.status,
+        conclusion: action.conclusion,
+        state: actionState(action),
+        startedAt: action.startedAt,
+        startedAtMs: new Date(action.startedAt).getTime(),
+        completedAtMs: action.completedAtMs,
+        durationMs: action.durationMs,
+        expectedDurationMs: action.expectedDurationMs,
+        currentJob: action.currentJob,
+        currentStep: action.currentStep,
+        jobsTotal: action.jobsTotal,
+        jobsCompleted: action.jobsCompleted,
+        url: action.url,
+        lingerMs: COMPLETED_LINGER_MS,
+    }
+}
+
+function visibleActions(): TrackedRun[] {
+    return Array.from(runningActions.values()).sort(
+        (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+    )
+}
+
+function broadcastActions() {
+    const payload = visibleActions().map(serializeAction)
+
+    if (popupWindow && !popupWindow.isDestroyed()) {
+        popupWindow.webContents.send('actions-update', payload)
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('actions-update', payload)
+    }
+
+    if (payload.length > 0) {
+        showPopupWindow()
+    }
+    // Hiding is driven by the renderer once the leave animation has finished,
+    // so the cards get to animate out instead of blinking away.
+}
+
+function forgetJobCache(key: string) {
+    for (const cacheKey of Array.from(lastJobDetailsFetch.keys())) {
+        if (cacheKey.startsWith(key)) {
+            lastJobDetailsFetch.delete(cacheKey)
+        }
+    }
+}
+
+function dismissAction(key: string) {
+    if (!runningActions.has(key) && !dismissedKeys.has(key)) {
+        return
+    }
+
+    // Remember the dismissal so an action that is still running does not pop
+    // straight back in on the next poll. A new run gets a new key, so the next
+    // one still shows up.
+    dismissedKeys.set(key, Date.now())
+    runningActions.delete(key)
+    forgetJobCache(key)
+    broadcastActions()
+}
+
+function pruneDismissedKeys() {
+    const now = Date.now()
+    for (const [key, at] of Array.from(dismissedKeys.entries())) {
+        if (now - at > DISMISSED_MEMORY_MS) {
+            dismissedKeys.delete(key)
+        }
+    }
+}
+
+// Completed runs stick around for COMPLETED_LINGER_MS so the result is actually
+// readable, then leave on their own.
+function pruneCompletedActions(): boolean {
+    const now = Date.now()
+    let changed = false
+
+    for (const [key, action] of Array.from(runningActions.entries())) {
+        if (action.status === 'completed' && action.completedAtMs && now - action.completedAtMs >= COMPLETED_LINGER_MS) {
+            runningActions.delete(key)
+            forgetJobCache(key)
+            changed = true
+        }
+    }
+
+    return changed
+}
+
+// ---------------------------------------------------------------------------
+// GitHub polling
+// ---------------------------------------------------------------------------
+
+function createTrackedRun(key: string, repoFullName: string, run: any): TrackedRun {
+    const [owner, repoName] = repoFullName.split('/')
+
+    return {
+        key,
+        repo: repoFullName,
+        owner,
+        repoName,
+        runId: run.id,
+        workflowId: run.workflow_id ?? null,
+        name: run.name || run.display_title || 'Workflow run',
+        branch: run.head_branch || null,
+        event: run.event || null,
+        status: normalizeStatus(run.status),
+        conclusion: run.conclusion ?? null,
+        startedAt: run.run_started_at || run.created_at,
+        completedAtMs: null,
+        durationMs: null,
+        expectedDurationMs: null,
+        currentJob: null,
+        currentStep: null,
+        jobsTotal: 0,
+        jobsCompleted: 0,
+        url: run.html_url || `https://github.com/${repoFullName}/actions/runs/${run.id}`,
+    }
+}
+
+function applyRunState(action: TrackedRun, run: any) {
+    action.name = run.name || run.display_title || action.name
+    action.branch = run.head_branch || action.branch
+    action.startedAt = run.run_started_at || run.created_at || action.startedAt
+
+    const status = normalizeStatus(run.status)
+    const wasCompleted = action.status === 'completed'
+    action.status = status
+    action.conclusion = run.conclusion ?? null
+
+    if (status === 'completed' && !wasCompleted) {
+        const startedAt = new Date(action.startedAt).getTime()
+        const finishedAt = new Date(run.updated_at || Date.now()).getTime()
+
+        action.completedAtMs = Date.now()
+        action.durationMs = finishedAt > startedAt ? finishedAt - startedAt : Date.now() - startedAt
+        action.currentJob = null
+        action.currentStep = null
+
+        if (action.jobsTotal > 0) {
+            action.jobsCompleted = action.jobsTotal
+        }
+
+        console.log(`[progressy] ${action.repo} ${action.name} finished: ${action.conclusion}`)
+    }
+}
+
+// Typical wall-clock duration of the last EXPECTED_DURATION_SAMPLES successful
+// runs of the same workflow - the yardstick the progress bar uses. The median
+// rather than the mean, because a single freak run (a cold cache, a stuck
+// runner) would otherwise drag the estimate off for the next half hour.
+async function getExpectedDurationMs(action: TrackedRun): Promise<number | null> {
+    if (!octokit || !action.workflowId) {
+        return action.expectedDurationMs
+    }
+
+    const cacheKey = `${action.repo}#${action.workflowId}`
+    const cached = expectedDurationCache.get(cacheKey)
+
+    if (cached && Date.now() - cached.fetchedAt < EXPECTED_DURATION_CACHE_MS) {
+        return cached.value
+    }
+
+    try {
+        const { data } = await octokit.actions.listWorkflowRuns({
+            owner: action.owner,
+            repo: action.repoName,
+            workflow_id: action.workflowId,
+            status: 'success',
+            per_page: EXPECTED_DURATION_SAMPLES,
+        })
+
+        const durations = data.workflow_runs
+            .map((run) => {
+                const startedAt = new Date(run.run_started_at || run.created_at).getTime()
+                const finishedAt = new Date(run.updated_at).getTime()
+                return finishedAt - startedAt
+            })
+            .filter((ms) => Number.isFinite(ms) && ms > 1000 && ms < 6 * 60 * 60 * 1000)
+
+        const value = median(durations)
+
+        expectedDurationCache.set(cacheKey, { value, fetchedAt: Date.now() })
+
+        if (value) {
+            console.log(
+                `[progressy] expected duration for ${cacheKey}: ${Math.round(value / 1000)}s ` +
+                    `(from ${durations.length} run${durations.length === 1 ? '' : 's'})`,
+            )
+        }
+
+        return value
+    } catch (error) {
+        console.error(`Error fetching previous runs for ${cacheKey}:`, error)
+        expectedDurationCache.set(cacheKey, { value: null, fetchedAt: Date.now() })
+        return null
+    }
+}
+
+async function refreshJobDetails(action: TrackedRun) {
+    if (!octokit) {
+        return
+    }
+
+    try {
+        const { data: jobs } = await octokit.actions.listJobsForWorkflowRun({
+            owner: action.owner,
+            repo: action.repoName,
+            run_id: action.runId,
+        })
+
+        action.jobsTotal = jobs.jobs.length
+        action.jobsCompleted = jobs.jobs.filter((job) => job.status === 'completed').length
+
+        const runningJob = jobs.jobs.find((job) => job.status === 'in_progress' || job.status === 'queued')
+        action.currentJob = runningJob?.name || null
+
+        if (!runningJob) {
+            action.currentStep = null
+            return
+        }
+
+        // Step-level detail is a second request per job, so cache it.
+        const jobDetailsKey = `${action.key}-${runningJob.id}`
+        const lastFetch = lastJobDetailsFetch.get(jobDetailsKey) || 0
+
+        if (Date.now() - lastFetch <= JOB_DETAILS_CACHE_MS) {
+            return
+        }
+
+        try {
+            const { data: jobDetails } = await octokit.actions.getJobForWorkflowRun({
+                owner: action.owner,
+                repo: action.repoName,
+                job_id: runningJob.id,
+            })
+
+            const currentStepData = jobDetails.steps?.find(
+                (step: any) => step.status === 'in_progress' || step.status === 'queued',
+            )
+
+            action.currentStep = currentStepData?.name || null
+            lastJobDetailsFetch.set(jobDetailsKey, Date.now())
+        } catch (error) {
+            console.error(`Error fetching job details for ${runningJob.id}:`, error)
+        }
+    } catch (error) {
+        console.error(`Error fetching jobs for ${action.repo}:`, error)
     }
 }
 
@@ -566,191 +1043,88 @@ async function checkGitHubActions() {
     }
 
     try {
-        // Only get the most recently updated repos (limit to 20 most recent)
         const { data: repos } = await octokit.repos.listForAuthenticatedUser({
-            per_page: 5,
+            per_page: REPOS_TO_SCAN,
             sort: 'updated',
             direction: 'desc',
         })
 
-        const allActions: any[] = []
+        // key -> { run, repoFullName } for every run we can currently see
+        const seenRuns = new Map<string, { run: any; repoFullName: string }>()
 
-        // First pass: Check for running workflows without detailed info
         for (const repo of repos) {
             try {
                 const { data: workflows } = await octokit.actions.listWorkflowRunsForRepo({
                     owner: repo.owner.login,
                     repo: repo.name,
-                    per_page: 3, // Only check latest 5 runs
+                    per_page: RUNS_PER_REPO,
                 })
 
-                const runningWorkflows = workflows.workflow_runs.filter(
-                    (run) => run.status === 'in_progress' || run.status === 'queued',
-                )
-
-                for (const run of runningWorkflows) {
-                    const key = `${repo.full_name}-${run.id}`
-
-                    if (!runningActions.has(key)) {
-                        // New action started - create basic entry
-                        runningActions.set(key, {
-                            key,
-                            repo: repo.full_name,
-                            runId: run.id,
-                            name: run.name,
-                            status: run.status,
-                            startedAt: run.created_at,
-                            progress: 0,
-                            owner: repo.owner.login,
-                            repoName: repo.name,
-                        })
-
-                        createPopupWindow()
-
-                        // Send update to popup window
-                        if (popupWindow) {
-                            popupWindow.webContents.send('action-started', {
-                                repo: repo.full_name,
-                                runId: run.id,
-                                name: run.name,
-                            })
-                        }
-                    }
-
-                    allActions.push({
-                        key,
-                        repo: repo.full_name,
-                        runId: run.id,
-                        name: run.name,
-                        status: run.status,
-                        startedAt: run.created_at,
-                    })
+                for (const run of workflows.workflow_runs) {
+                    seenRuns.set(`${repo.full_name}-${run.id}`, { run, repoFullName: repo.full_name })
                 }
             } catch (error) {
                 console.error(`Error fetching workflows for ${repo.full_name}:`, error)
             }
         }
 
-        // Second pass: Only fetch detailed info for actions we're tracking
-        for (const [key, action] of runningActions.entries()) {
-            // Only update if this action is still running
-            const stillRunning = allActions.find((a) => a.key === key)
-            if (!stillRunning) {
+        // 1. Pick up runs that have just started.
+        for (const [key, { run, repoFullName }] of seenRuns) {
+            if (runningActions.has(key) || dismissedKeys.has(key)) {
                 continue
             }
 
-            try {
-                const { data: jobs } = await octokit.actions.listJobsForWorkflowRun({
-                    owner: action.owner || action.repo.split('/')[0],
-                    repo: action.repoName || action.repo.split('/')[1],
-                    run_id: action.runId,
-                })
+            const status = normalizeStatus(run.status)
+            if (status === 'completed') {
+                continue // only announce runs we can watch from the start
+            }
 
-                const totalJobs = jobs.jobs.length
-                const completedJobs = jobs.jobs.filter((job) => job.status === 'completed').length
-                const progress = totalJobs > 0 ? (completedJobs / totalJobs) * 100 : 0
+            const action = createTrackedRun(key, repoFullName, run)
+            runningActions.set(key, action)
+            console.log(`[progressy] ${action.repo} ${action.name} started`)
+        }
 
-                // Find currently running job
-                const runningJob = jobs.jobs.find((job) => job.status === 'in_progress' || job.status === 'queued')
+        // 2. Refresh everything we are tracking.
+        for (const [key, action] of Array.from(runningActions.entries())) {
+            const seen = seenRuns.get(key)
+            let run = seen?.run
 
-                // Get detailed job information only if there's a running job
-                // Cache job details to avoid excessive API calls
-                let currentStep: string | null = null
-                if (runningJob) {
-                    const jobDetailsKey = `${key}-${runningJob.id}`
-                    const lastFetch = lastJobDetailsFetch.get(jobDetailsKey) || 0
-                    const now = Date.now()
-
-                    // Only fetch if cache expired
-                    if (now - lastFetch > JOB_DETAILS_CACHE_MS) {
-                        try {
-                            const { data: jobDetails } = await octokit.actions.getJobForWorkflowRun({
-                                owner: action.owner || action.repo.split('/')[0],
-                                repo: action.repoName || action.repo.split('/')[1],
-                                job_id: runningJob.id,
-                            })
-
-                            // Find current step
-                            const currentStepData = jobDetails.steps?.find(
-                                (step: any) => step.status === 'in_progress' || step.status === 'queued',
-                            )
-                            if (currentStepData) {
-                                currentStep = currentStepData.name || null
-                            }
-                            lastJobDetailsFetch.set(jobDetailsKey, now)
-                        } catch (error) {
-                            console.error(`Error fetching job details for ${runningJob.id}:`, error)
-                        }
-                    } else {
-                        // Use cached step if available
-                        currentStep = action.currentStep || null
-                    }
-                }
-
-                // Calculate elapsed time
-                const startTime = new Date(action.startedAt).getTime()
-                const now = Date.now()
-                const elapsedMs = now - startTime
-                const elapsedMinutes = Math.floor(elapsedMs / 60000)
-                const elapsedSeconds = Math.floor((elapsedMs % 60000) / 1000)
-                const elapsedTime = `${elapsedMinutes.toString().padStart(2, '0')}:${elapsedSeconds
-                    .toString()
-                    .padStart(2, '0')}`
-
-                action.progress = progress
-                action.currentJob = runningJob?.name || null
-                action.currentStep = currentStep
-                action.elapsedTime = elapsedTime
-                action.jobs = jobs.jobs.map((job) => ({
-                    name: job.name,
-                    status: job.status,
-                    conclusion: job.conclusion,
-                    startedAt: job.started_at,
-                    completedAt: job.completed_at,
-                }))
-
-                // Send update to popup window
-                if (popupWindow) {
-                    popupWindow.webContents.send('action-update', {
-                        key,
-                        ...action,
+            if (!run && action.status !== 'completed') {
+                // The run dropped off the recent list - ask for it directly so
+                // we learn its conclusion instead of just losing the card.
+                try {
+                    const { data } = await octokit.actions.getWorkflowRun({
+                        owner: action.owner,
+                        repo: action.repoName,
+                        run_id: action.runId,
                     })
-                }
-            } catch (error) {
-                console.error(`Error fetching jobs for ${action.repo}:`, error)
-            }
-        }
-
-        // Remove completed actions
-        const completedKeys: string[] = []
-        for (const [key, action] of runningActions.entries()) {
-            if (!allActions.find((a) => a.key === key)) {
-                completedKeys.push(key)
-            }
-        }
-
-        for (const key of completedKeys) {
-            runningActions.delete(key)
-            // Clean up job details cache for completed actions
-            for (const cacheKey of lastJobDetailsFetch.keys()) {
-                if (cacheKey.startsWith(key)) {
-                    lastJobDetailsFetch.delete(cacheKey)
+                    run = data
+                } catch (error) {
+                    console.error(`Error fetching run ${action.runId} for ${action.repo}:`, error)
                 }
             }
+
+            if (run) {
+                applyRunState(action, run)
+            }
+
+            if (action.status === 'completed') {
+                continue // finished runs just count down their linger time
+            }
+
+            action.expectedDurationMs = await getExpectedDurationMs(action)
+            await refreshJobDetails(action)
         }
 
-        // Hide popup if no actions running
-        if (runningActions.size === 0 && popupWindow) {
-            setTimeout(() => {
-                if (runningActions.size === 0) {
-                    hidePopupWindow()
-                }
-            }, 2000)
-        }
+        pruneCompletedActions()
+        pruneDismissedKeys()
+        broadcastActions()
 
-        // Send all actions to popup
-        if (popupWindow && allActions.length > 0) {
-            popupWindow.webContents.send('actions-update', Array.from(runningActions.values()))
+        if (VERBOSE) {
+            console.log(
+                `[progressy] swept ${repos.length} repo(s), ${seenRuns.size} recent run(s), ` +
+                    `tracking ${runningActions.size}`,
+            )
         }
     } catch (error) {
         console.error('Error checking GitHub Actions:', error)
@@ -758,13 +1132,21 @@ async function checkGitHubActions() {
 }
 
 function startActionMonitoring() {
-    if (actionCheckInterval) {
-        clearInterval(actionCheckInterval)
-    }
+    stopActionMonitoring()
+
+    console.log('[progressy] monitoring started')
 
     // Check every 15 seconds to stay well within the 5,000 requests/hour limit
     // With caching (30s cache for job details), this uses ~1,440-3,000 calls/hour
-    actionCheckInterval = setInterval(checkGitHubActions, 15000)
+    actionCheckInterval = setInterval(checkGitHubActions, POLL_INTERVAL_MS)
+
+    // Cheap local ticker that retires finished cards once their linger is up.
+    lingerInterval = setInterval(() => {
+        if (pruneCompletedActions()) {
+            broadcastActions()
+        }
+    }, 500)
+
     checkGitHubActions() // Initial check
 }
 
@@ -773,7 +1155,136 @@ function stopActionMonitoring() {
         clearInterval(actionCheckInterval)
         actionCheckInterval = null
     }
+    if (lingerInterval) {
+        clearInterval(lingerInterval)
+        lingerInterval = null
+    }
 }
+
+// ---------------------------------------------------------------------------
+// Demo mode: PROGRESSY_DEMO=1 fakes a couple of runs so the popup can be
+// checked without waiting for real CI.
+// ---------------------------------------------------------------------------
+
+function startDemoMode() {
+    const now = Date.now()
+
+    const demoRun = (overrides: Partial<TrackedRun>): TrackedRun => ({
+        key: 'demo',
+        repo: 'sietzekeuning/vvw-site',
+        owner: 'sietzekeuning',
+        repoName: 'vvw-site',
+        runId: 1,
+        workflowId: 1,
+        name: 'CI/CD',
+        branch: 'main',
+        event: 'push',
+        status: 'in_progress',
+        conclusion: null,
+        startedAt: new Date(now).toISOString(),
+        completedAtMs: null,
+        durationMs: null,
+        expectedDurationMs: 90000,
+        currentJob: 'test-and-deploy',
+        currentStep: 'Run actions/checkout@v4',
+        jobsTotal: 3,
+        jobsCompleted: 1,
+        url: 'https://github.com',
+        ...overrides,
+    })
+
+    const at = (ms: number, fn: () => void) => setTimeout(fn, ms)
+
+    at(1000, () => {
+        runningActions.set('demo-a', demoRun({ key: 'demo-a', status: 'queued', currentJob: null, currentStep: null }))
+        broadcastActions()
+    })
+
+    at(3000, () => {
+        const action = runningActions.get('demo-a')
+        if (action) {
+            action.status = 'in_progress'
+        }
+        broadcastActions()
+    })
+
+    at(6000, () => {
+        runningActions.set(
+            'demo-b',
+            demoRun({
+                key: 'demo-b',
+                repo: 'sietzekeuning/marmaya',
+                repoName: 'marmaya',
+                name: 'Deploy to production',
+                branch: 'release/2026-08',
+                currentJob: 'build-and-push-image',
+                currentStep: 'Build and push Docker image to the registry',
+                expectedDurationMs: null,
+                jobsTotal: 5,
+                jobsCompleted: 2,
+                startedAt: new Date(now - 45000).toISOString(),
+            }),
+        )
+        broadcastActions()
+    })
+
+    at(16000, () => {
+        runningActions.set(
+            'demo-c',
+            demoRun({
+                key: 'demo-c',
+                repo: 'sietzekeuning/pos',
+                repoName: 'pos',
+                name: 'production',
+                branch: 'master',
+                currentJob: 'deploy',
+                currentStep: 'Run php artisan migrate --force',
+                expectedDurationMs: 352000,
+                jobsTotal: 4,
+                jobsCompleted: 3,
+                startedAt: new Date(now - 210000).toISOString(),
+            }),
+        )
+        broadcastActions()
+    })
+
+    at(12000, () => {
+        const action = runningActions.get('demo-a')
+        if (action) {
+            action.status = 'completed'
+            action.conclusion = 'success'
+            action.completedAtMs = Date.now()
+            action.durationMs = Date.now() - new Date(action.startedAt).getTime()
+            action.currentJob = null
+            action.currentStep = null
+            action.jobsCompleted = action.jobsTotal
+        }
+        broadcastActions()
+    })
+
+    at(18000, () => {
+        const action = runningActions.get('demo-b')
+        if (action) {
+            action.status = 'completed'
+            action.conclusion = 'failure'
+            action.completedAtMs = Date.now()
+            action.durationMs = Date.now() - new Date(action.startedAt).getTime()
+            action.currentJob = null
+            action.currentStep = null
+        }
+        broadcastActions()
+    })
+
+    lingerInterval = setInterval(() => {
+        if (pruneCompletedActions()) {
+            broadcastActions()
+        }
+    }, 500)
+}
+
+// ---------------------------------------------------------------------------
+// App lifecycle
+// ---------------------------------------------------------------------------
 
 app.whenReady().then(() => {
     // Set dock icon on macOS using icons.icns (optional, since dock is hidden)
@@ -795,12 +1306,10 @@ app.whenReady().then(() => {
             path.join(__dirname, '../assets/icon.png'),
         ]
 
-        let dockIconSet = false
         for (const iconPath of dockIconPaths) {
             if (fs.existsSync(iconPath)) {
                 try {
                     app.dock.setIcon(iconPath)
-                    dockIconSet = true
                     break
                 } catch (error) {
                     // Silently continue - dock icon is not critical since dock is hidden
@@ -815,28 +1324,40 @@ app.whenReady().then(() => {
 
     createTray()
 
+    if (process.env.PROGRESSY_DEMO === '1') {
+        console.log('[progressy] demo mode')
+        startDemoMode()
+        return
+    }
+
     // Check if GitHub token exists
     const token = store.get('githubToken') as string | undefined
     if (token) {
         octokit = new Octokit({ auth: token })
         startActionMonitoring()
+    } else {
+        console.log(`[progressy] no GitHub token in ${store.path} - waiting for login`)
     }
 })
 
 app.on('window-all-closed', () => {
     // Don't quit when windows are closed, keep running in tray
-    // On macOS, apps typically stay active even when all windows are closed
-    if (process.platform !== 'darwin') {
-        // On Windows/Linux, prevent default quit behavior
-        // The app will stay running in the tray
-    }
 })
 
 app.on('before-quit', () => {
     stopActionMonitoring()
+    stopPointerWatchdog()
+
+    if (popupWindow && !popupWindow.isDestroyed()) {
+        popupWindow.destroy()
+        popupWindow = null
+    }
 })
 
-// Expose API to renderer
+// ---------------------------------------------------------------------------
+// Renderer API
+// ---------------------------------------------------------------------------
+
 ipcMain.handle('get-github-token', () => {
     return store.get('githubToken')
 })
@@ -856,11 +1377,34 @@ ipcMain.handle('set-github-token', (_event, token: string) => {
 })
 
 ipcMain.handle('get-running-actions', () => {
-    return Array.from(runningActions.values())
+    return visibleActions().map(serializeAction)
+})
+
+ipcMain.handle('dismiss-action', (_event, key: string) => {
+    dismissAction(key)
+    return true
 })
 
 ipcMain.handle('close-popup', () => {
-    hidePopupWindow()
+    for (const key of Array.from(runningActions.keys())) {
+        dismissedKeys.set(key, Date.now())
+        runningActions.delete(key)
+        forgetJobCache(key)
+    }
+    broadcastActions()
+    return true
+})
+
+// The renderer tells us when the stack is empty *and* done animating out.
+ipcMain.handle('popup-empty', () => {
+    if (runningActions.size === 0) {
+        hidePopupWindow()
+    }
+    return true
+})
+
+ipcMain.handle('set-pointer-interactive', (_event, interactive: boolean) => {
+    setPopupInteractive(!!interactive)
     return true
 })
 
@@ -875,4 +1419,14 @@ ipcMain.handle('get-github-oauth-credentials', () => {
         clientId: store.get('githubClientId') || GITHUB_CLIENT_ID,
         hasClientSecret: !!store.get('githubClientSecret'),
     }
+})
+
+ipcMain.handle('resize-window', (_event, width: number, height: number) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return false
+    }
+
+    // setContentSize, not setSize: the renderer measured content, not chrome.
+    mainWindow.setContentSize(Math.round(width), Math.round(height))
+    return true
 })

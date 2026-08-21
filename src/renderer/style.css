@@ -9,9 +9,28 @@ body {
   background: #0d1117;
   color: #c9d1d9;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 #app {
   width: 100%;
   height: 100vh;
+}
+
+/*
+ * The popup lives in a transparent, click-through window: nothing outside the
+ * cards themselves may paint, otherwise the "container" shows up as a box.
+ */
+html.popup,
+html.popup body,
+html.popup #app {
+  background: transparent;
+}
+
+html.popup {
+  cursor: default;
+}
+
+html.popup ::selection {
+  background: transparent;
 }

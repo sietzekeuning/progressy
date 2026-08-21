@@ -1,5 +1,6 @@
 <template>
   <div class="login-container">
+    <div class="drag-bar"></div>
     <div class="login-card">
       <h1>Connect to GitHub</h1>
       <p class="subtitle">Authorize Progressy to access your GitHub Actions</p>
@@ -63,11 +64,23 @@ async function handleLogin() {
 
 <style scoped>
 .login-container {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  padding: 0 1rem;
   background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+}
+
+/* The window has no title bar of its own, so give it something to drag by. */
+.drag-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 38px;
+  -webkit-app-region: drag;
 }
 
 .login-card {

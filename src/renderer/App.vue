@@ -19,6 +19,10 @@ onMounted(async () => {
   if (!isPopup.value) {
     const token = await window.electronAPI.getGitHubToken();
     isAuthenticated.value = !!token;
+
+    if (!isAuthenticated.value) {
+      window.electronAPI.resizeWindow(440, 430);
+    }
   }
 });
 </script>

@@ -1,208 +1,183 @@
 <template>
-    <div class="main-container">
-        <div class="content">
-            <div v-if="actions.length === 0" class="empty-state">
-                <p>No running actions</p>
-                <small>Actions will appear here when they start</small>
-            </div>
+    <div class="main">
+        <header class="bar">
+            <span class="brand">Progressy</span>
+            <span class="count">{{ countLabel }}</span>
+        </header>
 
-            <div v-else class="actions-list">
-                <div v-for="action in actions" :key="action.key" class="action-card">
-                    <div class="action-header">
-                        <h3>{{ action.name }}</h3>
-                        <span class="status-badge" :class="action.status">
-                            {{ action.status }}
-                        </span>
-                    </div>
-                    <p class="repo-name">{{ action.repo }}</p>
-                    <div v-if="action.currentJob" class="current-job">
-                        <strong>Current Job:</strong> {{ action.currentJob }}
-                        <span v-if="action.currentStep"> → {{ action.currentStep }}</span>
-                    </div>
-                    <div v-if="action.elapsedTime" class="elapsed-time">⏱ Running for {{ action.elapsedTime }}</div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" :style="{ width: `${action.progress || 0}%` }"></div>
-                    </div>
-                    <div class="progress-text">{{ Math.round(action.progress || 0) }}% complete</div>
+        <div class="list">
+            <div ref="stackEl" class="stack">
+                <div v-if="actions.length === 0" class="empty">
+                    <p>Nothing running</p>
+                    <small>Workflow runs show up here the moment they start</small>
                 </div>
+
+                <TransitionGroup v-else name="card" tag="div" class="cards" appear>
+                    <div v-for="action in actions" :key="action.key" class="item">
+                        <div class="item-inner">
+                            <ActionCard :action="action" :now="now" @dismiss="dismiss" />
+                        </div>
+                    </div>
+                </TransitionGroup>
             </div>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import ActionCard from '../components/ActionCard.vue'
+
+const WINDOW_WIDTH = 440
+const BAR_HEIGHT = 38
+const MIN_HEIGHT = 150
+const MAX_HEIGHT = 820
 
 const actions = ref<any[]>([])
-let elapsedTimeInterval: NodeJS.Timeout | null = null
+const now = ref(Date.now())
+const stackEl = ref<HTMLElement | null>(null)
 
-function updateElapsedTimes() {
-    actions.value = actions.value.map((action) => {
-        if (action.startedAt) {
-            const startTime = new Date(action.startedAt).getTime()
-            const now = Date.now()
-            const elapsedMs = now - startTime
-            const elapsedMinutes = Math.floor(elapsedMs / 60000)
-            const elapsedSeconds = Math.floor((elapsedMs % 60000) / 1000)
-            return {
-                ...action,
-                elapsedTime: `${elapsedMinutes.toString().padStart(2, '0')}:${elapsedSeconds
-                    .toString()
-                    .padStart(2, '0')}`,
-            }
+let clockInterval: ReturnType<typeof setInterval> | null = null
+let resizeObserver: ResizeObserver | null = null
+
+const countLabel = computed(() => {
+    if (actions.value.length === 0) {
+        return 'idle'
+    }
+    const running = actions.value.filter((action) => action.state === 'running' || action.state === 'queued').length
+    return running ? `${running} running` : `${actions.value.length} finished`
+})
+
+// Measure the real content instead of guessing per-card heights, so the window
+// hugs whatever is in it.
+function fitWindow() {
+    nextTick(() => {
+        if (!stackEl.value) {
+            return
         }
-        return action
+        const content = Math.ceil(stackEl.value.getBoundingClientRect().height)
+        const height = Math.max(MIN_HEIGHT, Math.min(BAR_HEIGHT + content + 8, MAX_HEIGHT))
+        window.electronAPI.resizeWindow(WINDOW_WIDTH, height)
     })
+}
+
+function dismiss(key: string) {
+    actions.value = actions.value.filter((action) => action.key !== key)
+    window.electronAPI.dismissAction(key)
 }
 
 onMounted(async () => {
     actions.value = await window.electronAPI.getRunningActions()
-    updateElapsedTimes()
+    fitWindow()
 
-    // Update elapsed times every second
-    elapsedTimeInterval = setInterval(updateElapsedTimes, 1000)
+    // Only tick while there is actually something to count.
+    clockInterval = setInterval(() => {
+        if (actions.value.length) {
+            now.value = Date.now()
+        }
+    }, 500)
 
     window.electronAPI.onActionsUpdate((data) => {
         actions.value = data
-        updateElapsedTimes()
+        now.value = Date.now()
+        fitWindow()
     })
 
-    window.electronAPI.onActionStarted(() => {
-        // Refresh actions list
-        window.electronAPI.getRunningActions().then((data) => {
-            actions.value = data
-            updateElapsedTimes()
-        })
-    })
+    if (stackEl.value) {
+        resizeObserver = new ResizeObserver(() => fitWindow())
+        resizeObserver.observe(stackEl.value)
+    }
 })
 
 onUnmounted(() => {
-    if (elapsedTimeInterval) {
-        clearInterval(elapsedTimeInterval)
+    if (clockInterval) {
+        clearInterval(clockInterval)
     }
+    resizeObserver?.disconnect()
 })
 </script>
 
 <style scoped>
-.main-container {
+.main {
     display: flex;
     flex-direction: column;
     height: 100vh;
     background: #0d1117;
 }
 
-.header {
+.bar {
     display: flex;
     align-items: center;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid #30363d;
+    justify-content: space-between;
+    height: 38px;
+    padding: 0 14px 0 78px; /* room for the traffic lights */
+    border-bottom: 1px solid #21262d;
+    -webkit-app-region: drag;
 }
 
-h1 {
-    color: #f0f6fc;
-    font-size: 1.1rem;
+.brand {
+    font-size: 12px;
+    font-weight: 600;
+    color: #e6edf3;
+    letter-spacing: -0.01em;
 }
 
-.content {
+.count {
+    font-size: 11px;
+    color: #7d8590;
+}
+
+.list {
     flex: 1;
     overflow-y: auto;
-    padding: 0.75rem;
 }
 
-.empty-state {
+.stack {
+    padding: 6px 0 2px;
+}
+
+.empty {
+    padding: 34px 20px;
     text-align: center;
-    padding: 2rem 1rem;
-    color: #8b949e;
+    color: #7d8590;
 }
 
-.empty-state p {
-    font-size: 1rem;
-    margin-bottom: 0.25rem;
+.empty p {
+    margin: 0 0 4px;
+    font-size: 13px;
+    color: #adb6c0;
 }
 
-.empty-state small {
-    font-size: 0.85rem;
+.empty small {
+    font-size: 11px;
 }
 
-.actions-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+.item {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition:
+        grid-template-rows 420ms cubic-bezier(0.16, 1, 0.3, 1),
+        opacity 260ms ease,
+        transform 420ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.action-card {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    padding: 0.75rem;
-}
-
-.action-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.25rem;
-}
-
-.action-header h3 {
-    color: #f0f6fc;
-    font-size: 0.9rem;
-}
-
-.repo-name {
-    color: #8b949e;
-    font-size: 0.8rem;
-    margin-bottom: 0.25rem;
-}
-
-.current-job {
-    color: #58a6ff;
-    font-size: 0.75rem;
-    margin-bottom: 0.25rem;
-    font-weight: 500;
-}
-
-.elapsed-time {
-    color: #8b949e;
-    font-size: 0.75rem;
-    margin-bottom: 0.5rem;
-}
-
-.status-badge {
-    padding: 0.2rem 0.5rem;
-    border-radius: 10px;
-    font-size: 0.7rem;
-    font-weight: 500;
-    text-transform: uppercase;
-}
-
-.status-badge.in_progress {
-    background: #1f6feb;
-    color: white;
-}
-
-.status-badge.queued {
-    background: #8b949e;
-    color: white;
-}
-
-.progress-bar {
-    width: 100%;
-    height: 6px;
-    background: #21262d;
-    border-radius: 3px;
+.item-inner {
+    min-height: 0;
     overflow: hidden;
-    margin-bottom: 0.25rem;
+    padding: 5px 12px 5px;
 }
 
-.progress-fill {
-    height: 100%;
-    background: #238636;
-    transition: width 0.3s;
+.card-enter-from,
+.card-leave-to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transform: translateX(24px) scale(0.97);
 }
 
-.progress-text {
-    color: #8b949e;
-    font-size: 0.75rem;
+.card-leave-active {
+    transition:
+        grid-template-rows 320ms cubic-bezier(0.4, 0, 1, 1) 60ms,
+        opacity 220ms ease,
+        transform 300ms cubic-bezier(0.4, 0, 1, 1);
 }
 </style>
