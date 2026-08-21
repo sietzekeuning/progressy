@@ -1,8 +1,8 @@
 <template>
   <div class="app">
-    <LoginView v-if="!isAuthenticated && !isPopup" />
-    <MainView v-else-if="!isPopup" />
-    <PopupView v-else />
+    <PopupView v-if="isPopup" />
+    <LoginView v-else-if="ready && !signedIn" />
+    <MainView v-else-if="ready" />
   </div>
 </template>
 
@@ -12,18 +12,18 @@ import LoginView from './views/LoginView.vue';
 import MainView from './views/MainView.vue';
 import PopupView from './views/PopupView.vue';
 
-const isAuthenticated = ref(false);
+const signedIn = ref(false);
+const ready = ref(false);
 const isPopup = ref(window.location.hash === '#popup' || window.location.hash === 'popup');
 
 onMounted(async () => {
-  if (!isPopup.value) {
-    const token = await window.electronAPI.getGitHubToken();
-    isAuthenticated.value = !!token;
-
-    if (!isAuthenticated.value) {
-      window.electronAPI.resizeWindow(440, 430);
-    }
+  if (isPopup.value) {
+    return;
   }
+
+  const auth = await window.electronAPI.getAuthState();
+  signedIn.value = auth.signedIn;
+  ready.value = true;
 });
 </script>
 

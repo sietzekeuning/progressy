@@ -46,6 +46,7 @@
 
         <footer class="meta">
             <span class="elapsed">{{ elapsedLabel }}</span>
+            <span v-if="byLine" class="by">{{ byLine }}</span>
             <span class="right">{{ rightLabel }}</span>
         </footer>
 
@@ -87,9 +88,8 @@ const elapsedMs = computed(() => {
 })
 
 const expectedMs = computed<number | null>(() => props.action.expectedDurationMs || null)
-const isOverdue = computed(() => !!expectedMs.value && isRunning.value && elapsedMs.value > expectedMs.value)
 
-// Prefer the time-based estimate (average of the last 3 successful runs) and
+// Prefer the time-based estimate (median of the last 3 successful runs) and
 // fall back to how many jobs are done when there is no history yet.
 const progress = computed(() => {
     if (isDone.value) {
@@ -159,6 +159,9 @@ const rightLabel = computed(() => {
 
     return jobs
 })
+
+// Only worth the pixels when somebody else set it off.
+const byLine = computed(() => (props.action.actor && !props.action.isMine ? `by ${props.action.actor}` : ''))
 
 // Drains from 1 to 0 over the linger window, so it is obvious the card is
 // about to leave on its own.
@@ -407,7 +410,17 @@ const lingerFraction = computed(() => {
     color: #9aa4ae;
 }
 
+.by {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #6e7681;
+}
+
 .right {
+    margin-left: auto;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

@@ -1,0 +1,419 @@
+<template>
+    <div class="settings">
+        <!-- Account -->
+        <section class="account" v-if="settings?.account">
+            <img v-if="settings.account.avatarUrl" class="avatar" :src="settings.account.avatarUrl" alt="" />
+            <div class="who">
+                <span class="login">{{ settings.account.login }}</span>
+                <span class="scopes">{{ scopeLabel }}</span>
+            </div>
+            <button class="ghost" @click="signOut">Sign out</button>
+        </section>
+
+        <!-- Who triggered it -->
+        <section>
+            <h2>Triggered by</h2>
+            <div class="segmented">
+                <button
+                    v-for="option in actorModes"
+                    :key="option.value"
+                    :class="{ on: actorMode === option.value }"
+                    @click="setActorMode(option.value)"
+                >
+                    {{ option.label }}
+                </button>
+            </div>
+
+            <div v-if="actorMode === 'only'" class="logins">
+                <div class="chips">
+                    <span v-for="login in actorLogins" :key="login" class="chip">
+                        {{ login }}
+                        <button @click="removeLogin(login)" aria-label="Remove">×</button>
+                    </span>
+                    <span v-if="actorLogins.length === 0" class="chips-empty">No one yet — nothing will show up.</span>
+                </div>
+                <input
+                    v-model="loginDraft"
+                    placeholder="GitHub username, then Enter"
+                    spellcheck="false"
+                    @keyup.enter="addLogin"
+                />
+            </div>
+
+            <p class="note">{{ actorNote }}</p>
+        </section>
+
+        <!-- Repositories -->
+        <section>
+            <h2>
+                Repositories
+                <span class="count">{{ watched.size ? `${watched.size} watched` : `auto` }}</span>
+            </h2>
+
+            <div class="search">
+                <input v-model="query" placeholder="Search repositories" spellcheck="false" />
+                <button v-if="watched.size" class="ghost small" @click="clearRepos">Reset</button>
+            </div>
+
+            <p v-if="!watched.size" class="note">
+                Watching your {{ settings?.autoRepoCount ?? 5 }} most recently updated repositories. Tick any below to
+                choose yourself.
+            </p>
+
+            <div class="repos">
+                <label v-for="repo in filteredRepos" :key="repo.fullName" class="repo">
+                    <input type="checkbox" :checked="watched.has(repo.fullName)" @change="toggleRepo(repo.fullName)" />
+                    <span class="repo-name">{{ repo.fullName }}</span>
+                    <span v-if="repo.private" class="tag">private</span>
+                    <span v-else-if="repo.fork" class="tag">fork</span>
+                </label>
+
+                <p v-if="loading" class="note">Loading repositories…</p>
+                <p v-else-if="filteredRepos.length === 0" class="note">Nothing matches “{{ query }}”.</p>
+            </div>
+        </section>
+    </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+
+const settings = ref<any>(null)
+const repos = ref<any[]>([])
+const watched = ref<Set<string>>(new Set())
+const actorMode = ref<'all' | 'me' | 'only'>('all')
+const actorLogins = ref<string[]>([])
+const loginDraft = ref('')
+const query = ref('')
+const loading = ref(true)
+
+const actorModes = [
+    { value: 'all' as const, label: 'Anyone' },
+    { value: 'me' as const, label: 'Only me' },
+    { value: 'only' as const, label: 'Specific people' },
+]
+
+const scopeLabel = computed(() => {
+    const scopes: string[] = settings.value?.account?.scopes || []
+    if (scopes.length === 0) {
+        return 'fine-grained token'
+    }
+    const missing = ['repo', 'workflow'].filter((scope) => !scopes.includes(scope))
+    return missing.length ? `missing scope: ${missing.join(', ')}` : 'repo, workflow'
+})
+
+const actorNote = computed(() => {
+    if (actorMode.value === 'all') {
+        return 'Every run in the repositories below shows up.'
+    }
+    if (actorMode.value === 'me') {
+        return `Only runs triggered by ${settings.value?.account?.login || 'you'}.`
+    }
+    return 'Only runs triggered by the people listed above.'
+})
+
+const filteredRepos = computed(() => {
+    const needle = query.value.trim().toLowerCase()
+    const list = needle ? repos.value.filter((repo) => repo.fullName.toLowerCase().includes(needle)) : repos.value
+
+    // Watched repos float to the top so a long list stays manageable.
+    return [...list].sort((a, b) => {
+        const aOn = watched.value.has(a.fullName) ? 0 : 1
+        const bOn = watched.value.has(b.fullName) ? 0 : 1
+        return aOn - bOn
+    })
+})
+
+function applySettings(next: any) {
+    settings.value = next
+    watched.value = new Set(next.watchedRepos)
+    actorMode.value = next.actorFilter.mode
+    actorLogins.value = [...next.actorFilter.logins]
+}
+
+async function saveRepos() {
+    try {
+        applySettings(await window.electronAPI.setWatchedRepos([...watched.value]))
+    } catch (error) {
+        console.error('Could not save the repository selection:', error)
+    }
+}
+
+function toggleRepo(fullName: string) {
+    const next = new Set(watched.value)
+    next.has(fullName) ? next.delete(fullName) : next.add(fullName)
+    watched.value = next
+    saveRepos()
+}
+
+function clearRepos() {
+    watched.value = new Set()
+    saveRepos()
+}
+
+async function saveActorFilter() {
+    try {
+        // Spread, don't pass the ref's array: a Vue reactive proxy cannot be
+        // structured-cloned over IPC and the call would reject silently.
+        applySettings(
+            await window.electronAPI.setActorFilter({ mode: actorMode.value, logins: [...actorLogins.value] }),
+        )
+    } catch (error) {
+        console.error('Could not save the trigger filter:', error)
+    }
+}
+
+function setActorMode(mode: 'all' | 'me' | 'only') {
+    actorMode.value = mode
+    saveActorFilter()
+}
+
+function addLogin() {
+    const value = loginDraft.value.trim().replace(/^@/, '')
+    if (value && !actorLogins.value.includes(value)) {
+        actorLogins.value = [...actorLogins.value, value]
+        saveActorFilter()
+    }
+    loginDraft.value = ''
+}
+
+function removeLogin(login: string) {
+    actorLogins.value = actorLogins.value.filter((item) => item !== login)
+    saveActorFilter()
+}
+
+function signOut() {
+    window.electronAPI.signOut().then(() => window.location.reload())
+}
+
+onMounted(async () => {
+    applySettings(await window.electronAPI.getSettings())
+    repos.value = await window.electronAPI.listRepos()
+    loading.value = false
+})
+</script>
+
+<style scoped>
+.settings {
+    padding: 4px 14px 16px;
+}
+
+section {
+    padding: 12px 0;
+    border-bottom: 1px solid #1c2129;
+}
+
+section:last-child {
+    border-bottom: none;
+}
+
+h2 {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #7d8590;
+}
+
+.count {
+    font-size: 10.5px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    color: #6e7681;
+}
+
+.account {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #21262d;
+}
+
+.who {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.login {
+    font-size: 13px;
+    font-weight: 600;
+    color: #f0f6fc;
+}
+
+.scopes {
+    font-size: 10.5px;
+    color: #7d8590;
+}
+
+.ghost {
+    padding: 5px 10px;
+    border: 1px solid #30363d;
+    border-radius: 7px;
+    background: transparent;
+    color: #c9d1d9;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.ghost:hover {
+    border-color: #8b949e;
+    color: #f0f6fc;
+}
+
+.ghost.small {
+    padding: 4px 8px;
+    font-size: 10.5px;
+}
+
+.segmented {
+    display: flex;
+    gap: 3px;
+    padding: 3px;
+    border-radius: 9px;
+    background: #161b22;
+    border: 1px solid #21262d;
+}
+
+.segmented button {
+    flex: 1;
+    padding: 5px 6px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #8b949e;
+    font-size: 11px;
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        color 0.15s ease;
+}
+
+.segmented button.on {
+    background: #2b3440;
+    color: #f0f6fc;
+}
+
+.logins {
+    margin-top: 8px;
+}
+
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px 2px 7px;
+    border-radius: 999px;
+    background: #21262d;
+    color: #c9d1d9;
+    font-size: 10.5px;
+}
+
+.chip button {
+    border: none;
+    background: none;
+    color: #8b949e;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    padding: 0 2px;
+}
+
+.chips-empty {
+    font-size: 10.5px;
+    color: #6e7681;
+}
+
+.search {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+input[type='text'],
+.search input,
+.logins input {
+    width: 100%;
+    padding: 6px 9px;
+    border: 1px solid #30363d;
+    border-radius: 7px;
+    background: #0d1117;
+    color: #c9d1d9;
+    font-size: 11.5px;
+}
+
+.search input:focus,
+.logins input:focus {
+    outline: none;
+    border-color: #58a6ff;
+}
+
+.repos {
+    max-height: 260px;
+    overflow-y: auto;
+    margin: 0 -6px;
+}
+
+.repo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.repo:hover {
+    background: #161b22;
+}
+
+.repo input {
+    accent-color: #2f81f7;
+    cursor: pointer;
+}
+
+.repo-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11.5px;
+    color: #c9d1d9;
+}
+
+.tag {
+    flex: none;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: #21262d;
+    color: #7d8590;
+    font-size: 9.5px;
+}
+
+.note {
+    margin-top: 6px;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: #6e7681;
+}
+</style>

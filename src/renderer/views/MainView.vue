@@ -3,22 +3,42 @@
         <header class="bar">
             <span class="brand">Progressy</span>
             <span class="count">{{ countLabel }}</span>
+            <button v-if="actions.length && !showSettings" class="icon" title="Clear all" @click="clearAll">
+                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+                    <path
+                        fill="currentColor"
+                        d="M6.5 1.75a.25.25 0 0 1 .25-.25h2.5a.25.25 0 0 1 .25.25V3h-3V1.75Zm4.5 0V3h2.25a.75.75 0 0 1 0 1.5H13v8.75A1.75 1.75 0 0 1 11.25 15h-6.5A1.75 1.75 0 0 1 3 13.25V4.5h-.25a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.5 4.5v8.75c0 .138.112.25.25.25h6.5a.25.25 0 0 0 .25-.25V4.5h-7Z"
+                    />
+                </svg>
+            </button>
+            <button class="icon" :class="{ on: showSettings }" title="Settings" @click="toggleSettings">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path
+                        fill="currentColor"
+                        d="M8 0a8.2 8.2 0 0 1 1.4.13.75.75 0 0 1 .6.6l.21 1.2c.29.12.57.27.83.44l1.14-.42a.75.75 0 0 1 .82.22c.37.43.68.92.92 1.44a.75.75 0 0 1-.14.84l-.83.88a5.7 5.7 0 0 1 0 .96l.83.88c.22.23.28.57.14.84-.24.52-.55 1.01-.92 1.44a.75.75 0 0 1-.82.22l-1.14-.42c-.26.17-.54.32-.83.44l-.21 1.2a.75.75 0 0 1-.6.6 8.2 8.2 0 0 1-2.8 0 .75.75 0 0 1-.6-.6l-.21-1.2a5.5 5.5 0 0 1-.83-.44l-1.14.42a.75.75 0 0 1-.82-.22 7.4 7.4 0 0 1-.92-1.44.75.75 0 0 1 .14-.84l.83-.88a5.7 5.7 0 0 1 0-.96l-.83-.88a.75.75 0 0 1-.14-.84c.24-.52.55-1.01.92-1.44a.75.75 0 0 1 .82-.22l1.14.42c.26-.17.54-.32.83-.44l.21-1.2a.75.75 0 0 1 .6-.6A8.2 8.2 0 0 1 8 0Zm0 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm0 1.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z"
+                    />
+                </svg>
+            </button>
         </header>
 
         <div class="list">
             <div ref="stackEl" class="stack">
-                <div v-if="actions.length === 0" class="empty">
-                    <p>Nothing running</p>
-                    <small>Workflow runs show up here the moment they start</small>
-                </div>
+                <SettingsView v-if="showSettings" />
 
-                <TransitionGroup v-else name="card" tag="div" class="cards" appear>
-                    <div v-for="action in actions" :key="action.key" class="item">
-                        <div class="item-inner">
-                            <ActionCard :action="action" :now="now" @dismiss="dismiss" />
-                        </div>
+                <template v-else>
+                    <div v-if="actions.length === 0" class="empty">
+                        <p>Nothing running</p>
+                        <small>Workflow runs show up here the moment they start</small>
                     </div>
-                </TransitionGroup>
+
+                    <TransitionGroup v-else name="card" tag="div" class="cards" appear>
+                        <div v-for="action in actions" :key="action.key" class="item">
+                            <div class="item-inner">
+                                <ActionCard :action="action" :now="now" @dismiss="dismiss" />
+                            </div>
+                        </div>
+                    </TransitionGroup>
+                </template>
             </div>
         </div>
     </div>
@@ -27,6 +47,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import ActionCard from '../components/ActionCard.vue'
+import SettingsView from './SettingsView.vue'
 
 const WINDOW_WIDTH = 440
 const BAR_HEIGHT = 38
@@ -36,11 +57,15 @@ const MAX_HEIGHT = 820
 const actions = ref<any[]>([])
 const now = ref(Date.now())
 const stackEl = ref<HTMLElement | null>(null)
+const showSettings = ref(false)
 
 let clockInterval: ReturnType<typeof setInterval> | null = null
 let resizeObserver: ResizeObserver | null = null
 
 const countLabel = computed(() => {
+    if (showSettings.value) {
+        return 'settings'
+    }
     if (actions.value.length === 0) {
         return 'idle'
     }
@@ -61,9 +86,19 @@ function fitWindow() {
     })
 }
 
+function toggleSettings() {
+    showSettings.value = !showSettings.value
+    fitWindow()
+}
+
 function dismiss(key: string) {
     actions.value = actions.value.filter((action) => action.key !== key)
     window.electronAPI.dismissAction(key)
+}
+
+function clearAll() {
+    actions.value = []
+    window.electronAPI.dismissAll()
 }
 
 onMounted(async () => {
@@ -108,9 +143,9 @@ onUnmounted(() => {
 .bar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     height: 38px;
-    padding: 0 14px 0 78px; /* room for the traffic lights */
+    padding: 0 10px 0 78px; /* room for the traffic lights */
     border-bottom: 1px solid #21262d;
     -webkit-app-region: drag;
 }
@@ -123,8 +158,38 @@ onUnmounted(() => {
 }
 
 .count {
+    flex: 1;
+    text-align: right;
     font-size: 11px;
     color: #7d8590;
+}
+
+.icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #7d8590;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    transition:
+        background 0.15s ease,
+        color 0.15s ease;
+}
+
+.icon:hover {
+    background: #21262d;
+    color: #f0f6fc;
+}
+
+.icon.on {
+    background: #21262d;
+    color: #58a6ff;
 }
 
 .list {

@@ -1,20 +1,27 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, clipboard, shell, safeStorage } from 'electron'
+import * as os from 'os'
 import * as path from 'path'
-import * as http from 'http'
-import * as url from 'url'
-import * as crypto from 'crypto'
 import AutoLaunch from 'auto-launch'
 import Store from 'electron-store'
 import { Octokit } from '@octokit/rest'
+import {
+    AuthError,
+    DeviceCode,
+    Account,
+    looksLikeToken,
+    pollForDeviceToken,
+    requestDeviceCode,
+    tokenCreationUrl,
+    validateToken,
+} from './auth'
 
 const store = new Store()
 
-// GitHub OAuth configuration
-// Users need to create a GitHub OAuth App at https://github.com/settings/developers
-const GITHUB_CLIENT_ID = (store.get('githubClientId') as string) || 'Iv1.8a61f9b507ba53b0'
-const GITHUB_CLIENT_SECRET = store.get('githubClientSecret') as string | undefined
-const REDIRECT_URI = 'http://localhost:3000/callback'
-const OAUTH_SCOPE = 'repo workflow'
+// Device flow needs a client id but no secret, so it is safe to ship. Leave it
+// empty and Progressy falls back to a pasted personal access token; set it to
+// your own OAuth App (with "Enable Device Flow" ticked) to get the
+// "Sign in with GitHub" button.
+const BUILT_IN_CLIENT_ID = ''
 
 
 // How long a finished run keeps its card on screen before it slides away.
@@ -25,9 +32,14 @@ const DISMISSED_MEMORY_MS = 6 * 60 * 60 * 1000
 const JOB_DETAILS_CACHE_MS = 30000 // Cache job details for 30 seconds
 const EXPECTED_DURATION_CACHE_MS = 30 * 60 * 1000 // Re-measure a workflow's usual runtime twice an hour
 const EXPECTED_DURATION_SAMPLES = 3 // Take the last 3 successful runs as the yardstick
-const POLL_INTERVAL_MS = 15000
-const REPOS_TO_SCAN = 5
+// Idle repos cost nothing (conditional requests come back 304, which GitHub
+// does not charge), so the interval only has to respect the runs we are
+// actively following.
+const POLL_IDLE_MS = 15000
+const POLL_ACTIVE_MS = 8000
+const REPOS_TO_SCAN = 5 // when the user has not picked repos themselves
 const RUNS_PER_REPO = 5
+const REPO_LIST_CACHE_MS = 10 * 60 * 1000
 
 const VERBOSE = process.env.PROGRESSY_VERBOSE === '1'
 
@@ -43,6 +55,13 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding')
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 
 type RunStatus = 'queued' | 'in_progress' | 'completed'
+
+type ActorMode = 'all' | 'me' | 'only'
+
+interface ActorFilter {
+    mode: ActorMode
+    logins: string[]
+}
 
 type ActionState =
     | 'queued'
@@ -71,6 +90,7 @@ interface TrackedRun {
     completedAtMs: number | null
     durationMs: number | null
     expectedDurationMs: number | null
+    actor: string | null
     currentJob: string | null
     currentStep: string | null
     jobsTotal: number
@@ -81,11 +101,8 @@ interface TrackedRun {
 let tray: Tray | null = null
 let mainWindow: BrowserWindow | null = null
 let popupWindow: BrowserWindow | null = null
-let oauthWindow: BrowserWindow | null = null
-let oauthServer: http.Server | null = null
-let oauthState: string | null = null
 let octokit: Octokit | null = null
-let actionCheckInterval: NodeJS.Timeout | null = null
+let pollTimer: NodeJS.Timeout | null = null
 let lingerInterval: NodeJS.Timeout | null = null
 let pointerWatchdog: NodeJS.Timeout | null = null
 let popupVisible = false
@@ -95,6 +112,8 @@ const runningActions: Map<string, TrackedRun> = new Map()
 const dismissedKeys: Map<string, number> = new Map() // key -> dismissed at
 const lastJobDetailsFetch: Map<string, number> = new Map() // Track when we last fetched job details
 const expectedDurationCache: Map<string, { value: number | null; fetchedAt: number }> = new Map()
+const runsCache: Map<string, { etag: string | null; runs: any[] }> = new Map()
+let conditionalHits = 0 // 304s in the last sweep, for the verbose log
 
 function updateTrayMenu() {
     if (!tray) return
@@ -272,231 +291,11 @@ function createTray() {
     updateTrayMenu()
     tray.setToolTip('Progressy - GitHub Actions Monitor')
     tray.on('click', () => {
-        const token = store.get('githubToken') as string | undefined
-        if (!token) {
-            // Start OAuth flow if no token
-            startOAuthFlow()
-        } else {
-            if (mainWindow) {
-                mainWindow.show()
-            } else {
-                createMainWindow()
-            }
-        }
-    })
-}
-
-function startOAuthServer(): Promise<string> {
-    return new Promise((resolve, reject) => {
-        if (oauthServer) {
-            oauthServer.close()
-        }
-
-        // Don't regenerate state here - it should be set before calling this function
-        if (!oauthState) {
-            oauthState = crypto.randomBytes(16).toString('hex')
-        }
-
-        oauthServer = http.createServer((req, res) => {
-            if (!req.url) {
-                res.writeHead(400)
-                res.end('Bad Request')
-                return
-            }
-
-            console.log('OAuth callback received:', req.url)
-            const parsedUrl = url.parse(req.url, true)
-            console.log('Parsed pathname:', parsedUrl.pathname)
-
-            // Handle root path as well (in case GitHub redirects there)
-            if (parsedUrl.pathname === '/callback' || parsedUrl.pathname === '/') {
-                const code = parsedUrl.query.code as string
-                const returnedState = parsedUrl.query.state as string
-
-                if (!code) {
-                    res.writeHead(400)
-                    res.end('Missing authorization code')
-                    reject(new Error('Missing authorization code'))
-                    return
-                }
-
-                if (returnedState !== oauthState) {
-                    res.writeHead(400)
-                    res.end('Invalid state parameter')
-                    reject(new Error('Invalid state parameter'))
-                    return
-                }
-
-                // Exchange code for token
-                exchangeCodeForToken(code)
-                    .then((token) => {
-                        res.writeHead(200, { 'Content-Type': 'text/html' })
-                        res.end(`
-              <html>
-                <head><title>Authorization Successful</title></head>
-                <body>
-                  <h1>Authorization Successful!</h1>
-                  <p>You can close this window and return to the app.</p>
-                  <script>setTimeout(() => window.close(), 2000);</script>
-                </body>
-              </html>
-            `)
-                        resolve(token)
-                        if (oauthServer) {
-                            oauthServer.close()
-                            oauthServer = null
-                        }
-                        if (oauthWindow) {
-                            oauthWindow.close()
-                            oauthWindow = null
-                        }
-                    })
-                    .catch((error) => {
-                        res.writeHead(500)
-                        res.end(`Error: ${error.message}`)
-                        reject(error)
-                    })
-            } else {
-                // Log all requests for debugging
-                console.log('404 for path:', parsedUrl.pathname)
-                res.writeHead(404)
-                res.end('Not Found - Expected /callback')
-            }
-        })
-
-        oauthServer.listen(3000, () => {
-            console.log('OAuth server listening on http://localhost:3000')
-        })
-
-        oauthServer.on('error', (error) => {
-            reject(error)
-        })
-    })
-}
-
-async function exchangeCodeForToken(code: string): Promise<string> {
-    const clientId = (store.get('githubClientId') as string) || GITHUB_CLIENT_ID
-    const clientSecret = store.get('githubClientSecret') as string | undefined
-
-    if (!clientSecret) {
-        throw new Error('GitHub Client Secret not configured')
-    }
-
-    const response = await fetch('https://github.com/login/oauth/access_token', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-        },
-        body: JSON.stringify({
-            client_id: clientId,
-            client_secret: clientSecret,
-            code: code,
-        }),
-    })
-
-    if (!response.ok) {
-        throw new Error(`Failed to exchange code for token: ${response.statusText}`)
-    }
-
-    const data = (await response.json()) as {
-        access_token?: string
-        error?: string
-        error_description?: string
-    }
-
-    if (data.error) {
-        throw new Error(data.error_description || data.error)
-    }
-
-    const token = data.access_token
-    if (!token) {
-        throw new Error('No access token received')
-    }
-
-    // Store the token
-    store.set('githubToken', token)
-    octokit = new Octokit({ auth: token })
-    startActionMonitoring()
-
-    return token
-}
-
-function startOAuthFlow() {
-    const clientId = (store.get('githubClientId') as string) || GITHUB_CLIENT_ID
-    const clientSecret = store.get('githubClientSecret') as string | undefined
-
-    if (!clientSecret) {
-        // Show error message - user needs to set up OAuth app
-        if (mainWindow) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.show()
-            mainWindow.webContents.send(
-                'oauth-error',
-                'Please configure GitHub OAuth credentials. Create an OAuth App at https://github.com/settings/developers and enter your Client ID and Client Secret.',
-            )
+            mainWindow.focus()
         } else {
             createMainWindow()
-            // Wait for window to be ready before sending message
-            setTimeout(() => {
-                if (mainWindow) {
-                    mainWindow.webContents.send(
-                        'oauth-error',
-                        'Please configure GitHub OAuth credentials. Create an OAuth App at https://github.com/settings/developers and enter your Client ID and Client Secret.',
-                    )
-                }
-            }, 1000)
-        }
-        return
-    }
-
-    // Generate state BEFORE starting server
-    oauthState = crypto.randomBytes(16).toString('hex')
-    const authUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(
-        REDIRECT_URI,
-    )}&scope=${encodeURIComponent(OAUTH_SCOPE)}&state=${oauthState}`
-
-    // Start server first, then open window
-    startOAuthServer()
-        .then(() => {
-            // OAuth completed successfully
-            if (mainWindow) {
-                mainWindow.reload()
-            }
-        })
-        .catch((error) => {
-            console.error('OAuth server error:', error)
-            if (mainWindow) {
-                mainWindow.webContents.send('oauth-error', error.message)
-            }
-        })
-
-    // Open OAuth window
-    oauthWindow = new BrowserWindow({
-        width: 600,
-        height: 700,
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-        },
-        show: true,
-    })
-
-    oauthWindow.loadURL(authUrl)
-
-    // Intercept navigation to catch the callback
-    oauthWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-        const parsedUrl = url.parse(navigationUrl, true)
-        if (parsedUrl.hostname === 'localhost' && parsedUrl.port === '3000') {
-            // Let the navigation proceed - our server will handle it
-            console.log('Navigating to callback:', navigationUrl)
-        }
-    })
-
-    oauthWindow.on('closed', () => {
-        oauthWindow = null
-        if (oauthServer) {
-            oauthServer.close()
-            oauthServer = null
         }
     })
 }
@@ -539,12 +338,6 @@ function createMainWindow() {
         },
         show: false,
     })
-
-    // Check if we have a token, if not start OAuth flow
-    const token = store.get('githubToken') as string | undefined
-    if (!token) {
-        startOAuthFlow()
-    }
 
     if (process.env.NODE_ENV === 'development') {
         mainWindow.loadURL('http://localhost:5173')
@@ -790,6 +583,8 @@ function serializeAction(action: TrackedRun) {
         status: action.status,
         conclusion: action.conclusion,
         state: actionState(action),
+        actor: action.actor,
+        isMine: !!action.actor && action.actor.toLowerCase() === (getAccount()?.login || '').toLowerCase(),
         startedAt: action.startedAt,
         startedAtMs: new Date(action.startedAt).getTime(),
         completedAtMs: action.completedAtMs,
@@ -876,6 +671,222 @@ function pruneCompletedActions(): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Stored settings
+// ---------------------------------------------------------------------------
+
+/**
+ * The token lives in the OS keychain when that is available, and only falls
+ * back to plain config.json when it is not. A token written by an older build
+ * is migrated on first read.
+ */
+function getStoredToken(): string | undefined {
+    const encrypted = store.get('githubTokenEncrypted') as string | undefined
+
+    if (encrypted) {
+        try {
+            return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
+        } catch (error) {
+            console.error('[progressy] could not decrypt the stored token:', error)
+            return undefined
+        }
+    }
+
+    const plain = store.get('githubToken') as string | undefined
+
+    if (plain && safeStorage.isEncryptionAvailable()) {
+        setStoredToken(plain) // migrate it into the keychain
+        return plain
+    }
+
+    return plain || undefined
+}
+
+function setStoredToken(token: string | null) {
+    if (!token) {
+        store.delete('githubToken')
+        store.delete('githubTokenEncrypted')
+        return
+    }
+
+    if (safeStorage.isEncryptionAvailable()) {
+        store.set('githubTokenEncrypted', safeStorage.encryptString(token).toString('base64'))
+        store.delete('githubToken')
+        return
+    }
+
+    store.set('githubToken', token)
+}
+
+function getClientId(): string {
+    return ((store.get('githubClientId') as string) || BUILT_IN_CLIENT_ID).trim()
+}
+
+function getAccount(): Account | null {
+    return (store.get('account') as Account | undefined) || null
+}
+
+function getWatchedRepos(): string[] {
+    const watched = store.get('watchedRepos') as string[] | undefined
+    return Array.isArray(watched) ? watched : []
+}
+
+function getActorFilter(): ActorFilter {
+    const stored = store.get('actorFilter') as ActorFilter | undefined
+
+    if (!stored || (stored.mode !== 'all' && stored.mode !== 'me' && stored.mode !== 'only')) {
+        return { mode: 'all', logins: [] }
+    }
+
+    return { mode: stored.mode, logins: Array.isArray(stored.logins) ? stored.logins : [] }
+}
+
+/** Everything the settings screen needs, in one round trip. */
+function getSettings() {
+    return {
+        watchedRepos: getWatchedRepos(),
+        actorFilter: getActorFilter(),
+        account: getAccount(),
+        hasClientId: !!getClientId(),
+        autoRepoCount: REPOS_TO_SCAN,
+    }
+}
+
+function whoTriggered(run: any): string | null {
+    return run?.triggering_actor?.login || run?.actor?.login || null
+}
+
+/**
+ * Filtering happens when a run is first picked up. A run already on screen is
+ * never yanked away because the filter changed under it.
+ */
+function passesActorFilter(run: any): boolean {
+    const filter = getActorFilter()
+
+    if (filter.mode === 'all') {
+        return true
+    }
+
+    const actor = whoTriggered(run)
+    if (!actor) {
+        return false
+    }
+
+    if (filter.mode === 'me') {
+        const me = getAccount()?.login
+        return me ? actor.toLowerCase() === me.toLowerCase() : true
+    }
+
+    return filter.logins.some((login) => login.toLowerCase() === actor.toLowerCase())
+}
+
+// ---------------------------------------------------------------------------
+// Repositories
+// ---------------------------------------------------------------------------
+
+interface RepoSummary {
+    fullName: string
+    owner: string
+    name: string
+    private: boolean
+    fork: boolean
+    updatedAt: string
+}
+
+let repoCache: { fetchedAt: number; repos: RepoSummary[] } | null = null
+
+async function listUserRepos(force = false): Promise<RepoSummary[]> {
+    if (!octokit) {
+        return []
+    }
+
+    if (!force && repoCache && Date.now() - repoCache.fetchedAt < REPO_LIST_CACHE_MS) {
+        return repoCache.repos
+    }
+
+    try {
+        const repos = await octokit.paginate(octokit.repos.listForAuthenticatedUser, {
+            per_page: 100,
+            sort: 'updated',
+            direction: 'desc',
+        })
+
+        const summaries: RepoSummary[] = repos.map((repo) => ({
+            fullName: repo.full_name,
+            owner: repo.owner.login,
+            name: repo.name,
+            private: !!repo.private,
+            fork: !!repo.fork,
+            updatedAt: repo.updated_at || '',
+        }))
+
+        repoCache = { fetchedAt: Date.now(), repos: summaries }
+        return summaries
+    } catch (error) {
+        console.error('Error listing repositories:', error)
+        return repoCache?.repos || []
+    }
+}
+
+/** The repos this poll should look at: whatever is ticked, or the recent ones. */
+async function reposToScan(): Promise<RepoSummary[]> {
+    const watched = getWatchedRepos()
+
+    if (watched.length === 0) {
+        return (await listUserRepos()).slice(0, REPOS_TO_SCAN)
+    }
+
+    const known = new Map((await listUserRepos()).map((repo) => [repo.fullName, repo]))
+
+    return watched.map((fullName) => {
+        const repo = known.get(fullName)
+        if (repo) {
+            return repo
+        }
+
+        const [owner, name] = fullName.split('/')
+        return { fullName, owner, name, private: true, fork: false, updatedAt: '' }
+    })
+}
+
+/**
+ * Runs for one repo, using a conditional request. GitHub does not charge rate
+ * limit for a 304, so a repo where nothing happened is free to watch - which is
+ * what makes it reasonable to tick more than a handful of them.
+ */
+async function fetchRepoRuns(repo: RepoSummary): Promise<any[]> {
+    if (!octokit) {
+        return []
+    }
+
+    const cached = runsCache.get(repo.fullName)
+
+    try {
+        const response = await octokit.request('GET /repos/{owner}/{repo}/actions/runs', {
+            owner: repo.owner,
+            repo: repo.name,
+            per_page: RUNS_PER_REPO,
+            headers: cached?.etag ? { 'if-none-match': cached.etag } : {},
+        })
+
+        const runs = response.data.workflow_runs || []
+        runsCache.set(repo.fullName, { etag: response.headers.etag || null, runs })
+        return runs
+    } catch (error: any) {
+        if (error?.status === 304) {
+            conditionalHits += 1
+            return cached?.runs || []
+        }
+
+        if (error?.status === 404) {
+            return [] // repo went away, or the token lost access to it
+        }
+
+        console.error(`Error fetching workflows for ${repo.fullName}:`, error?.message || error)
+        return cached?.runs || []
+    }
+}
+
+// ---------------------------------------------------------------------------
 // GitHub polling
 // ---------------------------------------------------------------------------
 
@@ -894,6 +905,7 @@ function createTrackedRun(key: string, repoFullName: string, run: any): TrackedR
         event: run.event || null,
         status: normalizeStatus(run.status),
         conclusion: run.conclusion ?? null,
+        actor: whoTriggered(run),
         startedAt: run.run_started_at || run.created_at,
         completedAtMs: null,
         durationMs: null,
@@ -909,6 +921,7 @@ function createTrackedRun(key: string, repoFullName: string, run: any): TrackedR
 function applyRunState(action: TrackedRun, run: any) {
     action.name = run.name || run.display_title || action.name
     action.branch = run.head_branch || action.branch
+    action.actor = whoTriggered(run) || action.actor
     action.startedAt = run.run_started_at || run.created_at || action.startedAt
 
     const status = normalizeStatus(run.status)
@@ -1042,29 +1055,17 @@ async function checkGitHubActions() {
         return
     }
 
+    conditionalHits = 0
+
     try {
-        const { data: repos } = await octokit.repos.listForAuthenticatedUser({
-            per_page: REPOS_TO_SCAN,
-            sort: 'updated',
-            direction: 'desc',
-        })
+        const repos = await reposToScan()
 
         // key -> { run, repoFullName } for every run we can currently see
         const seenRuns = new Map<string, { run: any; repoFullName: string }>()
 
         for (const repo of repos) {
-            try {
-                const { data: workflows } = await octokit.actions.listWorkflowRunsForRepo({
-                    owner: repo.owner.login,
-                    repo: repo.name,
-                    per_page: RUNS_PER_REPO,
-                })
-
-                for (const run of workflows.workflow_runs) {
-                    seenRuns.set(`${repo.full_name}-${run.id}`, { run, repoFullName: repo.full_name })
-                }
-            } catch (error) {
-                console.error(`Error fetching workflows for ${repo.full_name}:`, error)
+            for (const run of await fetchRepoRuns(repo)) {
+                seenRuns.set(`${repo.fullName}-${run.id}`, { run, repoFullName: repo.fullName })
             }
         }
 
@@ -1079,9 +1080,13 @@ async function checkGitHubActions() {
                 continue // only announce runs we can watch from the start
             }
 
+            if (!passesActorFilter(run)) {
+                continue
+            }
+
             const action = createTrackedRun(key, repoFullName, run)
             runningActions.set(key, action)
-            console.log(`[progressy] ${action.repo} ${action.name} started`)
+            console.log(`[progressy] ${action.repo} ${action.name} started (by ${action.actor || 'unknown'})`)
         }
 
         // 2. Refresh everything we are tracking.
@@ -1122,12 +1127,47 @@ async function checkGitHubActions() {
 
         if (VERBOSE) {
             console.log(
-                `[progressy] swept ${repos.length} repo(s), ${seenRuns.size} recent run(s), ` +
-                    `tracking ${runningActions.size}`,
+                `[progressy] swept ${repos.length} repo(s) (${conditionalHits} unchanged), ` +
+                    `${seenRuns.size} recent run(s), tracking ${runningActions.size}`,
             )
         }
     } catch (error) {
         console.error('Error checking GitHub Actions:', error)
+    }
+}
+
+function activeRunCount(): number {
+    let active = 0
+
+    for (const action of runningActions.values()) {
+        if (action.status !== 'completed') {
+            active += 1
+        }
+    }
+
+    return active
+}
+
+/**
+ * Watching idle repos is free, but every run we are actively following costs a
+ * jobs request per sweep - so speed up when something is happening and back off
+ * again as more runs pile up.
+ */
+function nextPollDelay(): number {
+    const active = activeRunCount()
+
+    if (active === 0) {
+        return POLL_IDLE_MS
+    }
+
+    return Math.min(POLL_IDLE_MS, Math.max(POLL_ACTIVE_MS, active * 4000))
+}
+
+async function runPollCycle() {
+    await checkGitHubActions()
+
+    if (octokit) {
+        pollTimer = setTimeout(runPollCycle, nextPollDelay())
     }
 }
 
@@ -1136,10 +1176,6 @@ function startActionMonitoring() {
 
     console.log('[progressy] monitoring started')
 
-    // Check every 15 seconds to stay well within the 5,000 requests/hour limit
-    // With caching (30s cache for job details), this uses ~1,440-3,000 calls/hour
-    actionCheckInterval = setInterval(checkGitHubActions, POLL_INTERVAL_MS)
-
     // Cheap local ticker that retires finished cards once their linger is up.
     lingerInterval = setInterval(() => {
         if (pruneCompletedActions()) {
@@ -1147,13 +1183,13 @@ function startActionMonitoring() {
         }
     }, 500)
 
-    checkGitHubActions() // Initial check
+    runPollCycle()
 }
 
 function stopActionMonitoring() {
-    if (actionCheckInterval) {
-        clearInterval(actionCheckInterval)
-        actionCheckInterval = null
+    if (pollTimer) {
+        clearTimeout(pollTimer)
+        pollTimer = null
     }
     if (lingerInterval) {
         clearInterval(lingerInterval)
@@ -1181,6 +1217,7 @@ function startDemoMode() {
         event: 'push',
         status: 'in_progress',
         conclusion: null,
+        actor: getAccount()?.login || 'octocat',
         startedAt: new Date(now).toISOString(),
         completedAtMs: null,
         durationMs: null,
@@ -1217,6 +1254,7 @@ function startDemoMode() {
                 repoName: 'marmaya',
                 name: 'Deploy to production',
                 branch: 'release/2026-08',
+                actor: 'octocat',
                 currentJob: 'build-and-push-image',
                 currentStep: 'Build and push Docker image to the registry',
                 expectedDurationMs: null,
@@ -1283,6 +1321,125 @@ function startDemoMode() {
 }
 
 // ---------------------------------------------------------------------------
+// Signing in
+// ---------------------------------------------------------------------------
+
+function sendToMainWindow(channel: string, payload?: unknown) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, payload)
+    }
+}
+
+/** Validate a token, remember it, and start watching. */
+async function applyToken(token: string): Promise<Account> {
+    const account = await validateToken(token)
+
+    setStoredToken(token)
+    store.set('account', account)
+    octokit = new Octokit({ auth: token })
+    repoCache = null
+    runsCache.clear()
+    startActionMonitoring()
+    updateTrayMenu()
+
+    console.log(`[progressy] signed in as ${account.login}`)
+    return account
+}
+
+function signOut() {
+    setStoredToken(null)
+    store.delete('account')
+    octokit = null
+    repoCache = null
+    runsCache.clear()
+    runningActions.clear()
+    dismissedKeys.clear()
+    stopActionMonitoring()
+    hidePopupWindow()
+    updateTrayMenu()
+    broadcastActions()
+}
+
+let deviceSession: { cancelled: boolean } | null = null
+
+function cancelDeviceLogin() {
+    if (deviceSession) {
+        deviceSession.cancelled = true
+        deviceSession = null
+    }
+}
+
+async function startDeviceLogin(): Promise<DeviceCode> {
+    const clientId = getClientId()
+
+    if (!clientId) {
+        throw new AuthError('No OAuth App client id is configured for this build.', 'no_client_id')
+    }
+
+    cancelDeviceLogin()
+
+    const device = await requestDeviceCode(clientId)
+    const session = { cancelled: false }
+    deviceSession = session
+
+    // Runs in the background; the renderer shows the code meanwhile.
+    pollForDeviceToken(clientId, device, () => !session.cancelled && deviceSession === session)
+        .then(async (token) => {
+            const account = await applyToken(token)
+            sendToMainWindow('login-complete', account)
+        })
+        .catch((error: AuthError) => {
+            if (error?.code !== 'cancelled') {
+                sendToMainWindow('login-error', error?.message || 'Sign-in failed.')
+            }
+        })
+        .finally(() => {
+            if (deviceSession === session) {
+                deviceSession = null
+            }
+        })
+
+    return device
+}
+
+// While the login screen is open we keep an eye on the clipboard: the moment a
+// GitHub token is copied, the renderer can use it without the user having to
+// find the paste field.
+let clipboardTimer: NodeJS.Timeout | null = null
+let lastClipboardText = ''
+
+function startClipboardWatch() {
+    stopClipboardWatch()
+    lastClipboardText = ''
+
+    clipboardTimer = setInterval(() => {
+        let text = ''
+        try {
+            text = clipboard.readText()
+        } catch {
+            return
+        }
+
+        if (text === lastClipboardText) {
+            return
+        }
+
+        lastClipboardText = text
+
+        if (looksLikeToken(text)) {
+            sendToMainWindow('clipboard-token', text.trim())
+        }
+    }, 700)
+}
+
+function stopClipboardWatch() {
+    if (clipboardTimer) {
+        clearInterval(clipboardTimer)
+        clipboardTimer = null
+    }
+}
+
+// ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
 
@@ -1330,13 +1487,31 @@ app.whenReady().then(() => {
         return
     }
 
-    // Check if GitHub token exists
-    const token = store.get('githubToken') as string | undefined
+    const token = getStoredToken()
     if (token) {
         octokit = new Octokit({ auth: token })
         startActionMonitoring()
+
+        // A token stored by an older build has no account attached, and we need
+        // the login to make "only my runs" mean anything. It also tells us
+        // early when a token has been revoked.
+        validateToken(token)
+            .then((account) => {
+                store.set('account', account)
+                sendToMainWindow('account-update', account)
+            })
+            .catch((error: AuthError) => {
+                if (error?.code === 'bad_credentials') {
+                    console.log('[progressy] the stored token is no longer valid - signing out')
+                    signOut()
+                    createMainWindow()
+                } else {
+                    console.error('[progressy] could not verify the stored token:', error?.message || error)
+                }
+            })
     } else {
-        console.log(`[progressy] no GitHub token in ${store.path} - waiting for login`)
+        console.log('[progressy] not signed in yet - opening the window')
+        createMainWindow()
     }
 })
 
@@ -1347,6 +1522,8 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
     stopActionMonitoring()
     stopPointerWatchdog()
+    stopClipboardWatch()
+    cancelDeviceLogin()
 
     if (popupWindow && !popupWindow.isDestroyed()) {
         popupWindow.destroy()
@@ -1358,22 +1535,69 @@ app.on('before-quit', () => {
 // Renderer API
 // ---------------------------------------------------------------------------
 
-ipcMain.handle('get-github-token', () => {
-    return store.get('githubToken')
+ipcMain.handle('get-auth-state', () => ({
+    signedIn: !!getStoredToken(),
+    account: getAccount(),
+    hasClientId: !!getClientId(),
+    tokenUrl: tokenCreationUrl(os.hostname().replace(/\.local$/, '')),
+}))
+
+ipcMain.handle('submit-token', async (_event, token: string) => {
+    const account = await applyToken(String(token || '').trim())
+    return account
 })
 
-ipcMain.handle('set-github-token', (_event, token: string) => {
-    store.set('githubToken', token)
-    if (token) {
-        octokit = new Octokit({ auth: token })
-        startActionMonitoring()
-    } else {
-        octokit = null
-        stopActionMonitoring()
-    }
-    // Update tray menu to show/hide disconnect option
-    updateTrayMenu()
+ipcMain.handle('start-device-login', async () => startDeviceLogin())
+
+ipcMain.handle('cancel-device-login', () => {
+    cancelDeviceLogin()
     return true
+})
+
+ipcMain.handle('watch-clipboard', (_event, watch: boolean) => {
+    if (watch) {
+        startClipboardWatch()
+    } else {
+        stopClipboardWatch()
+    }
+    return true
+})
+
+ipcMain.handle('sign-out', () => {
+    signOut()
+    return true
+})
+
+// Only ever opens GitHub, so a compromised renderer cannot use us as a
+// general-purpose URL opener.
+ipcMain.handle('open-github-url', (_event, url: string) => {
+    if (typeof url === 'string' && /^https:\/\/github\.com\//.test(url)) {
+        shell.openExternal(url)
+        return true
+    }
+    return false
+})
+
+ipcMain.handle('get-settings', () => getSettings())
+
+ipcMain.handle('list-repos', async (_event, force: boolean) => listUserRepos(!!force))
+
+ipcMain.handle('set-watched-repos', (_event, repos: string[]) => {
+    const cleaned = Array.isArray(repos) ? repos.filter((repo) => typeof repo === 'string' && repo.includes('/')) : []
+    store.set('watchedRepos', cleaned)
+    runsCache.clear() // different repo set, different conditional requests
+    checkGitHubActions()
+    return getSettings()
+})
+
+ipcMain.handle('set-actor-filter', (_event, filter: ActorFilter) => {
+    const mode = filter?.mode === 'me' || filter?.mode === 'only' ? filter.mode : 'all'
+    const logins = Array.isArray(filter?.logins)
+        ? filter.logins.map((login) => String(login).trim()).filter(Boolean)
+        : []
+
+    store.set('actorFilter', { mode, logins })
+    return getSettings()
 })
 
 ipcMain.handle('get-running-actions', () => {
@@ -1385,7 +1609,7 @@ ipcMain.handle('dismiss-action', (_event, key: string) => {
     return true
 })
 
-ipcMain.handle('close-popup', () => {
+ipcMain.handle('dismiss-all', () => {
     for (const key of Array.from(runningActions.keys())) {
         dismissedKeys.set(key, Date.now())
         runningActions.delete(key)
@@ -1406,19 +1630,6 @@ ipcMain.handle('popup-empty', () => {
 ipcMain.handle('set-pointer-interactive', (_event, interactive: boolean) => {
     setPopupInteractive(!!interactive)
     return true
-})
-
-ipcMain.handle('set-github-oauth-credentials', (_event, clientId: string, clientSecret: string) => {
-    store.set('githubClientId', clientId)
-    store.set('githubClientSecret', clientSecret)
-    return true
-})
-
-ipcMain.handle('get-github-oauth-credentials', () => {
-    return {
-        clientId: store.get('githubClientId') || GITHUB_CLIENT_ID,
-        hasClientSecret: !!store.get('githubClientSecret'),
-    }
 })
 
 ipcMain.handle('resize-window', (_event, width: number, height: number) => {
