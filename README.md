@@ -10,7 +10,8 @@
 </p>
 
 <p align="center">
-  <img src="docs/notifications.png" alt="Progressy notification cards showing a passed, a failed and a running workflow" width="416">
+  <img src="docs/demo.svg" width="820"
+       alt="Ten seconds of Progressy: signing in with a token off the clipboard, picking which repositories to watch, and three cards sliding in from the right — one passed, one running with a time-based progress bar, one failed.">
 </p>
 
 The cards live in the top-right corner, on top of whatever you are doing. They are click-through, so

@@ -1,0 +1,858 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 500" width="820" height="500" role="img"
+     aria-labelledby="demoTitle demoDesc">
+  <title id="demoTitle">Progressy — connect, choose what you watch, and see every workflow run the moment it starts</title>
+  <desc id="demoDesc">A ten second loop: signing in with a token from the clipboard, filtering which runs to watch,
+    and three notification cards sliding in from the right — one passing, one running with a time based progress bar,
+    one failing.</desc>
+
+  <defs>
+    <clipPath id="screen"><rect x="0" y="0" width="820" height="500" rx="15"/></clipPath>
+    <clipPath id="clipWin"><rect x="0" y="0" width="440" height="372" rx="13"/></clipPath>
+    <clipPath id="clipCardS"><rect x="0" y="0" width="408" height="94" rx="14"/></clipPath>
+    <clipPath id="clipCardT"><rect x="0" y="0" width="408" height="114" rx="14"/></clipPath>
+
+    <linearGradient id="desk" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0%" stop-color="#141b25"/>
+      <stop offset="55%" stop-color="#0d121a"/>
+      <stop offset="100%" stop-color="#090c11"/>
+    </linearGradient>
+    <radialGradient id="glowBlue" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#4b93ff" stop-opacity="0.20"/>
+      <stop offset="100%" stop-color="#4b93ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowViolet" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.13"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowGreen" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#35b45f" stop-opacity="0.11"/>
+      <stop offset="100%" stop-color="#35b45f" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="markGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#4b93ff" stop-opacity="0.42"/>
+      <stop offset="100%" stop-color="#4b93ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.055"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#ffffff" fill-opacity="0.05"/>
+    </pattern>
+
+    <linearGradient id="arc" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0%" stop-color="#7cc4ff"/>
+      <stop offset="55%" stop-color="#4b93ff"/>
+      <stop offset="100%" stop-color="#2f6bff"/>
+    </linearGradient>
+
+    <linearGradient id="cardBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#202731"/>
+      <stop offset="100%" stop-color="#131820"/>
+    </linearGradient>
+    <radialGradient id="loginBg" cx="0.5" cy="0" r="0.85">
+      <stop offset="0%" stop-color="#161d27"/>
+      <stop offset="70%" stop-color="#0d1117"/>
+    </radialGradient>
+    <linearGradient id="btnBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2b3440"/>
+      <stop offset="100%" stop-color="#212932"/>
+    </linearGradient>
+    <linearGradient id="btnBgHot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3a4552"/>
+      <stop offset="100%" stop-color="#2b3440"/>
+    </linearGradient>
+    <linearGradient id="listFade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#0d1117"/>
+    </linearGradient>
+
+    <linearGradient id="barBlue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#3467b2"/><stop offset="100%" stop-color="#4b93ff"/>
+    </linearGradient>
+    <linearGradient id="barGreen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#257e42"/><stop offset="100%" stop-color="#35b45f"/>
+    </linearGradient>
+    <linearGradient id="barRed" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#a93834"/><stop offset="100%" stop-color="#f2504a"/>
+    </linearGradient>
+    <linearGradient id="barAmber" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#92711e"/><stop offset="100%" stop-color="#d0a12c"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-25%" y="-30%" width="150%" height="180%">
+      <feDropShadow dx="0" dy="10" stdDeviation="11" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+    <filter id="winShadow" x="-25%" y="-25%" width="150%" height="160%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <style>
+    /* ------------------------------------------------------------------ *
+     * Progressy demo loop — 10s, everything hangs off one shared timeline
+     * so nothing can drift apart. 1% = 100ms.
+     *
+     *   0.0 - 2.6s   act 1  connect (token off the clipboard)
+     *   2.6 - 5.3s   act 2  filter (who triggered it, which repositories)
+     *   5.3 - 10s    act 3  the cards
+     *
+     * The still frame (no animation / prefers-reduced-motion) is the end of
+     * act 3: three cards, one passed, one running, one failed.
+     * ------------------------------------------------------------------ */
+
+    text {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      fill: #c9d1d9;
+      white-space: pre;
+    }
+    .m { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+
+    /* still-frame defaults: the window and the pointer are gone, the cards are there */
+    #win, #login, #settings, #cursor, .loopbar { opacity: 0; }
+    .aPillQ, .aPillR, .aSpinG, .aE0, .aE1, .aE2, .aE3, .aR1, .aR2,
+    .cPillR, .cSpinG, .cE1, .cE2, .cR1,
+    .bE1, .bE2, .bE3, .bLinger,
+    .segLblA, .noteA, .cntA, .noticeA, .chip, .inArmed, .inDots, .btnHot { opacity: 0; }
+    .ck1, .ck2, .ck3 { stroke-dashoffset: 0; }
+    .cbox1, .cbox2, .cbox3 { fill: #2f81f7; }
+    .rowHl { opacity: 0; }
+    .aLinger { transform: scaleX(0.55); }
+    .cLinger { transform: scaleX(0.78); }
+    .bFill { transform: scaleX(0.654); }
+    .aFill, .cFill { transform: scaleX(1); }
+    .segPill { transform: translateX(136.3px); }
+    .step1c, .step2c { fill: #161b22; stroke: #30363d; }
+    .step1n, .step2n { fill: #6e7681; }
+    .step1l, .step2l { fill: #7d8590; }
+    .conn1, .conn2 { transform: scaleY(1); }
+    .ring { transform: rotate(-90deg); }
+
+    @media (prefers-reduced-motion: no-preference) {
+
+      /* ---------- the frame itself ---------- */
+      #win      { animation: win 10s linear infinite; }
+      #login    { animation: login 10s linear infinite; }
+      #settings { animation: settings 10s linear infinite; }
+      .loopbar  { animation: loopbar 10s linear infinite; }
+      .ring     { animation: ring 10s linear infinite; }
+
+      @keyframes win {
+        0%, 4.5% { opacity: 0; transform: translate(364px,56px) translate(220px,186px) scale(.96) translate(-220px,-186px); }
+        7.5%  { opacity: 1; transform: translate(364px,56px) translate(220px,186px) scale(1) translate(-220px,-186px); }
+        53%   { opacity: 1; transform: translate(364px,56px) translate(220px,186px) scale(1) translate(-220px,-186px); }
+        56.5% { opacity: 0; transform: translate(376px,56px) translate(220px,186px) scale(.985) translate(-220px,-186px); }
+        100%  { opacity: 0; transform: translate(376px,56px) translate(220px,186px) scale(.985) translate(-220px,-186px); }
+      }
+      @keyframes login {
+        0%, 6%   { opacity: 0; transform: translateY(7px); }
+        9%       { opacity: 1; transform: translateY(0); }
+        25.6%    { opacity: 1; transform: translateY(0); }
+        27.2%    { opacity: 0; transform: translateY(-9px); }
+        100%     { opacity: 0; transform: translateY(-9px); }
+      }
+      @keyframes settings {
+        0%, 27.4% { opacity: 0; transform: translateY(11px); }
+        29.8%     { opacity: 1; transform: translateY(0); }
+        52%       { opacity: 1; transform: translateY(0); }
+        54.5%     { opacity: 0; transform: translateY(-9px); }
+        100%      { opacity: 0; transform: translateY(-9px); }
+      }
+      @keyframes loopbar {
+        0%   { opacity: 0; transform: scaleX(0); }
+        2%   { opacity: .5; transform: scaleX(.02); }
+        96%  { opacity: .5; transform: scaleX(.96); }
+        100% { opacity: 0; transform: scaleX(1); }
+      }
+      @keyframes ring { 0% { transform: rotate(-90deg); } 100% { transform: rotate(270deg); } }
+
+      /* ---------- act 1: connect ---------- */
+      .btnHot   { animation: btnHot 10s linear infinite; }
+      .chip     { animation: chip 10s cubic-bezier(.16,1,.3,1) infinite; }
+      .inArmed  { animation: armed 10s linear infinite; }
+      .inDots   { animation: armed 10s linear infinite; }
+      .inPlace  { animation: placeholder 10s linear infinite; }
+      .noticeA  { animation: noticeA 10s linear infinite; }
+      .noticeB  { animation: noticeB 10s linear infinite; }
+
+      @keyframes btnHot {
+        0%, 14.3% { opacity: 0; }
+        14.6%     { opacity: 1; }
+        16.5%     { opacity: 0; }
+        100%      { opacity: 0; }
+      }
+      @keyframes chip {
+        0%, 15.2% { opacity: 0; transform: translate(296px,289px) scale(.94); }
+        17.4%     { opacity: 1; transform: translate(102px,289px) scale(1); }
+        18.6%     { opacity: 1; transform: translate(102px,289px) scale(1); }
+        19.9%     { opacity: 0; transform: translate(86px,289px) scale(.97); }
+        100%      { opacity: 0; transform: translate(86px,289px) scale(.97); }
+      }
+      @keyframes armed {
+        0%, 19.3% { opacity: 0; }
+        19.9%     { opacity: 1; }
+        26%       { opacity: 1; }
+        27%       { opacity: 0; }
+        100%      { opacity: 0; }
+      }
+      @keyframes placeholder {
+        0%, 19.3% { opacity: 1; }
+        19.9%     { opacity: 0; }
+        100%      { opacity: 0; }
+      }
+      @keyframes noticeA {
+        0%, 19.8% { opacity: 0; }
+        20.8%     { opacity: 1; }
+        23.6%     { opacity: 1; }
+        24.4%     { opacity: 0; }
+        100%      { opacity: 0; }
+      }
+      @keyframes noticeB {
+        0%, 24.2% { opacity: 0; }
+        25.2%     { opacity: 1; }
+        100%      { opacity: 1; }
+      }
+
+      /* ---------- act 2: filter ---------- */
+      .segPill  { animation: segPill 10s cubic-bezier(.16,1,.3,1) infinite; }
+      .segLblA  { animation: segA 10s linear infinite; }
+      .segLblB  { animation: segB 10s linear infinite; }
+      .noteA    { animation: noteA 10s linear infinite; }
+      .noteB    { animation: noteB 10s linear infinite; }
+      .cntA     { animation: cntA 10s linear infinite; }
+      .cntB     { animation: cntB 10s linear infinite; }
+      .cbox1    { animation: box1 10s linear infinite; }
+      .cbox2    { animation: box2 10s linear infinite; }
+      .cbox3    { animation: box3 10s linear infinite; }
+      .ck1      { animation: tick1 10s linear infinite; }
+      .ck2      { animation: tick2 10s linear infinite; }
+      .ck3      { animation: tick3 10s linear infinite; }
+      .cpop1    { animation: pop1 10s cubic-bezier(.16,1,.3,1) infinite; }
+      .cpop2    { animation: pop2 10s cubic-bezier(.16,1,.3,1) infinite; }
+      .cpop3    { animation: pop3 10s cubic-bezier(.16,1,.3,1) infinite; }
+      .rowHl1   { animation: hl1 10s linear infinite; }
+      .rowHl2   { animation: hl2 10s linear infinite; }
+      .rowHl3   { animation: hl3 10s linear infinite; }
+
+      @keyframes segPill {
+        0%, 35.5% { transform: translateX(0); }
+        38.5%     { transform: translateX(136.3px); }
+        100%      { transform: translateX(136.3px); }
+      }
+      @keyframes segA { 0%, 35.5% { opacity: 1; } 37% { opacity: 0; } 100% { opacity: 0; } }
+      @keyframes segB { 0%, 35.8% { opacity: 0; } 37.6% { opacity: 1; } 100% { opacity: 1; } }
+      @keyframes noteA { 0%, 35.4% { opacity: 1; } 36.4% { opacity: 0; } 100% { opacity: 0; } }
+      @keyframes noteB { 0%, 36.2% { opacity: 0; } 37.4% { opacity: 1; } 100% { opacity: 1; } }
+      @keyframes cntA { 0%, 47.4% { opacity: 1; } 48% { opacity: 0; } 100% { opacity: 0; } }
+      @keyframes cntB { 0%, 47.6% { opacity: 0; } 48.4% { opacity: 1; } 100% { opacity: 1; } }
+
+      @keyframes box1 { 0%, 42.4% { fill: #ffffff; } 43% { fill: #2f81f7; } 100% { fill: #2f81f7; } }
+      @keyframes box2 { 0%, 44.9% { fill: #ffffff; } 45.5% { fill: #2f81f7; } 100% { fill: #2f81f7; } }
+      @keyframes box3 { 0%, 47.4% { fill: #ffffff; } 48% { fill: #2f81f7; } 100% { fill: #2f81f7; } }
+      @keyframes tick1 { 0%, 42.6% { stroke-dashoffset: 13; } 43.9% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 0; } }
+      @keyframes tick2 { 0%, 45.1% { stroke-dashoffset: 13; } 46.4% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 0; } }
+      @keyframes tick3 { 0%, 47.6% { stroke-dashoffset: 13; } 48.9% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 0; } }
+      @keyframes pop1 { 0%, 42.4% { transform: scale(1); } 43.2% { transform: scale(1.22); } 44.6% { transform: scale(1); } 100% { transform: scale(1); } }
+      @keyframes pop2 { 0%, 44.9% { transform: scale(1); } 45.7% { transform: scale(1.22); } 47.1% { transform: scale(1); } 100% { transform: scale(1); } }
+      @keyframes pop3 { 0%, 47.4% { transform: scale(1); } 48.2% { transform: scale(1.22); } 49.6% { transform: scale(1); } 100% { transform: scale(1); } }
+      @keyframes hl1 { 0%, 40.5% { opacity: 0; } 41.5%, 44.2% { opacity: 1; } 45% { opacity: 0; } 100% { opacity: 0; } }
+      @keyframes hl2 { 0%, 43.6% { opacity: 0; } 44.4%, 46.7% { opacity: 1; } 47.4% { opacity: 0; } 100% { opacity: 0; } }
+      @keyframes hl3 { 0%, 46.2% { opacity: 0; } 47%, 49.6% { opacity: 1; } 50.4% { opacity: 0; } 100% { opacity: 0; } }
+
+      /* ---------- the pointer ---------- */
+      #cursor  { animation: cursor 10s cubic-bezier(.33,.9,.3,1) infinite; }
+      .ripple  { animation: ripple 10s linear infinite; }
+
+      @keyframes cursor {
+        0%, 9%  { opacity: 0; transform: translate(668px,432px) scale(1); }
+        11%     { opacity: 1; transform: translate(644px,392px) scale(1); }
+        14%     { opacity: 1; transform: translate(584px,271px) scale(1); }
+        14.6%   { opacity: 1; transform: translate(584px,271px) scale(.84); }
+        15.4%   { opacity: 1; transform: translate(584px,271px) scale(1); }
+        30%     { opacity: 1; transform: translate(584px,271px) scale(1); }
+        33.6%   { opacity: 1; transform: translate(584px,195px) scale(1); }
+        35.6%   { opacity: 1; transform: translate(584px,195px) scale(.84); }
+        36.4%   { opacity: 1; transform: translate(584px,195px) scale(1); }
+        39.6%   { opacity: 1; transform: translate(389px,320px) scale(1); }
+        42.6%   { opacity: 1; transform: translate(389px,320px) scale(.84); }
+        43.4%   { opacity: 1; transform: translate(389px,320px) scale(1); }
+        44.6%   { opacity: 1; transform: translate(389px,346px) scale(1); }
+        45.1%   { opacity: 1; transform: translate(389px,346px) scale(.84); }
+        45.9%   { opacity: 1; transform: translate(389px,346px) scale(1); }
+        47.1%   { opacity: 1; transform: translate(389px,372px) scale(1); }
+        47.6%   { opacity: 1; transform: translate(389px,372px) scale(.84); }
+        48.4%   { opacity: 1; transform: translate(389px,372px) scale(1); }
+        50%     { opacity: 1; transform: translate(389px,372px) scale(1); }
+        53%     { opacity: 0; transform: translate(450px,440px) scale(1); }
+        100%    { opacity: 0; transform: translate(450px,440px) scale(1); }
+      }
+      @keyframes ripple {
+        0%, 14.5%  { opacity: 0; transform: scale(.2); }
+        14.6%      { opacity: .5; transform: scale(.3); }
+        16.6%      { opacity: 0; transform: scale(1.5); }
+        35.5%      { opacity: 0; transform: scale(.2); }
+        35.6%      { opacity: .5; transform: scale(.3); }
+        37.6%      { opacity: 0; transform: scale(1.5); }
+        42.5%      { opacity: 0; transform: scale(.2); }
+        42.6%      { opacity: .5; transform: scale(.3); }
+        44.4%      { opacity: 0; transform: scale(1.5); }
+        45%        { opacity: 0; transform: scale(.2); }
+        45.1%      { opacity: .5; transform: scale(.3); }
+        46.9%      { opacity: 0; transform: scale(1.5); }
+        47.5%      { opacity: 0; transform: scale(.2); }
+        47.6%      { opacity: .5; transform: scale(.3); }
+        49.4%      { opacity: 0; transform: scale(1.5); }
+        100%       { opacity: 0; transform: scale(.2); }
+      }
+
+      /* ---------- act 3: the cards ---------- */
+      #cardA { animation: cardA 10s cubic-bezier(.16,1,.3,1) infinite; }
+      #cardB { animation: cardB 10s cubic-bezier(.16,1,.3,1) infinite; }
+      #cardC { animation: cardC 10s cubic-bezier(.16,1,.3,1) infinite; }
+
+      @keyframes cardA {
+        0%, 2%    { opacity: 1; transform: translate(396px,56px) scale(1); animation-timing-function: cubic-bezier(.4,0,1,1); }
+        5.3%, 57% { opacity: 0; transform: translate(880px,56px) scale(.96); animation-timing-function: cubic-bezier(.16,1,.3,1); }
+        61%, 100% { opacity: 1; transform: translate(396px,56px) scale(1); }
+      }
+      @keyframes cardB {
+        0%, 3.6%  { opacity: 1; transform: translate(396px,166px) scale(1); animation-timing-function: cubic-bezier(.4,0,1,1); }
+        6.9%, 63% { opacity: 0; transform: translate(880px,166px) scale(.96); animation-timing-function: cubic-bezier(.16,1,.3,1); }
+        67%, 100% { opacity: 1; transform: translate(396px,166px) scale(1); }
+      }
+      @keyframes cardC {
+        0%, 2.8%    { opacity: 1; transform: translate(396px,296px) scale(1); animation-timing-function: cubic-bezier(.4,0,1,1); }
+        6.1%, 69.5% { opacity: 0; transform: translate(880px,296px) scale(.96); animation-timing-function: cubic-bezier(.16,1,.3,1); }
+        73.5%, 100% { opacity: 1; transform: translate(396px,296px) scale(1); }
+      }
+
+      /* card A: passed (from the previous pass) -> queued -> running -> passed */
+      .aAccent { animation: aAccent 10s linear infinite; }
+      .aDot    { animation: aDot 10s linear infinite; }
+      .aSpinG  { animation: aSpinG 10s linear infinite; }
+      .aSpinS  { animation: aSpinS 10s linear infinite; }
+      .aPillQ  { animation: aPillQ 10s linear infinite; }
+      .aPillR  { animation: aPillR 10s linear infinite; }
+      .aPillP  { animation: aPillP 10s linear infinite; }
+      .aFill   { animation: aFill 10s linear infinite; }
+      .aE0 { animation: aE0 10s linear infinite; }
+      .aE1 { animation: aE1 10s linear infinite; }
+      .aE2 { animation: aE2 10s linear infinite; }
+      .aE3 { animation: aE3 10s linear infinite; }
+      .aR1 { animation: aR1 10s linear infinite; }
+      .aR2 { animation: aR2 10s linear infinite; }
+      .aR3 { animation: aR3 10s linear infinite; }
+      .aLinger { animation: aLinger 10s linear infinite; }
+
+      @keyframes aAccent {
+        0%, 5.5% { fill: #35b45f; } 6% { fill: #d0a12c; }
+        63.5%    { fill: #d0a12c; } 64.5% { fill: #4b93ff; }
+        79.5%    { fill: #4b93ff; } 80.5%, 100% { fill: #35b45f; }
+      }
+      @keyframes aDot { 0%, 5.5% { opacity: 1; } 6%, 79.5% { opacity: 0; } 80%, 100% { opacity: 1; } }
+      @keyframes aSpinG { 0%, 5.9% { opacity: 0; } 6.4%, 79.4% { opacity: 1; } 79.9%, 100% { opacity: 0; } }
+      @keyframes aSpinS { 0%, 63.9% { stroke: #d0a12c; } 64.9%, 100% { stroke: #4b93ff; } }
+      @keyframes aPillQ { 0%, 5.5% { opacity: 0; } 6%, 63.6% { opacity: 1; } 64.4%, 100% { opacity: 0; } }
+      @keyframes aPillR { 0%, 63.8% { opacity: 0; } 64.6%, 79.4% { opacity: 1; } 80.2%, 100% { opacity: 0; } }
+      @keyframes aPillP { 0%, 5.5% { opacity: 1; } 6%, 79.6% { opacity: 0; } 80.4%, 100% { opacity: 1; } }
+      @keyframes aFill {
+        0%, 5.5%  { transform: scaleX(1); fill: url(#barGreen); }
+        6%        { transform: scaleX(0); fill: url(#barAmber); }
+        63.5%     { transform: scaleX(0); fill: url(#barAmber); }
+        63.6%     { fill: url(#barBlue); }
+        69.5%     { transform: scaleX(.333); }
+        70%       { transform: scaleX(.333); }
+        76%       { transform: scaleX(.667); }
+        79.5%     { transform: scaleX(.667); fill: url(#barBlue); }
+        79.6%     { fill: url(#barGreen); }
+        85%       { transform: scaleX(1); }
+        100%      { transform: scaleX(1); fill: url(#barGreen); }
+      }
+      @keyframes aE0 { 0%, 5.5% { opacity: 0; } 6%, 63.4% { opacity: 1; } 63.9%, 100% { opacity: 0; } }
+      @keyframes aE1 { 0%, 63.5% { opacity: 0; } 64%, 69.5% { opacity: 1; } 70%, 100% { opacity: 0; } }
+      @keyframes aE2 { 0%, 69.6% { opacity: 0; } 70.1%, 75.5% { opacity: 1; } 76%, 100% { opacity: 0; } }
+      @keyframes aE3 { 0%, 75.6% { opacity: 0; } 76.1%, 79.5% { opacity: 1; } 80%, 100% { opacity: 0; } }
+      @keyframes aR1 { 0%, 63.5% { opacity: 0; } 64%, 69.5% { opacity: 1; } 70%, 100% { opacity: 0; } }
+      @keyframes aR2 { 0%, 69.6% { opacity: 0; } 70.1%, 79.5% { opacity: 1; } 80%, 100% { opacity: 0; } }
+      @keyframes aR3 { 0%, 5.5% { opacity: 1; } 6%, 79.6% { opacity: 0; } 80.1%, 100% { opacity: 1; } }
+      @keyframes aLinger {
+        0%, 5.5% { opacity: .5; transform: scaleX(.42); }
+        6%       { opacity: 0; transform: scaleX(.42); }
+        80.3%    { opacity: 0; transform: scaleX(1); }
+        80.9%    { opacity: .5; transform: scaleX(1); }
+        100%     { opacity: .5; transform: scaleX(.42); }
+      }
+
+      /* card B: running the whole way, the clock keeps ticking */
+      .bFill { animation: bFill 10s linear infinite; }
+      .bE1 { animation: bE1 10s linear infinite; }
+      .bE2 { animation: bE2 10s linear infinite; }
+      .bE3 { animation: bE3 10s linear infinite; }
+      .bE4 { animation: bE4 10s linear infinite; }
+      @keyframes bFill { 0%, 7.5% { transform: scaleX(.654); } 8%, 63% { transform: scaleX(0); } 69% { transform: scaleX(.645); } 100% { transform: scaleX(.654); } }
+      @keyframes bE1 { 0%, 7.5% { opacity: 0; } 8%, 72.8% { opacity: 1; } 73.2%, 100% { opacity: 0; } }
+      @keyframes bE2 { 0%, 72.8% { opacity: 0; } 73.2%, 82.8% { opacity: 1; } 83.2%, 100% { opacity: 0; } }
+      @keyframes bE3 { 0%, 82.8% { opacity: 0; } 83.2%, 92.8% { opacity: 1; } 93.2%, 100% { opacity: 0; } }
+      @keyframes bE4 { 0%, 7.5% { opacity: 1; } 8%, 92.8% { opacity: 0; } 93.2%, 100% { opacity: 1; } }
+
+      /* card C: running -> failed */
+      .cAccent { animation: cAccent 10s linear infinite; }
+      .cDot    { animation: cDot 10s linear infinite; }
+      .cSpinG  { animation: cSpinG 10s linear infinite; }
+      .cPillR  { animation: cPillR 10s linear infinite; }
+      .cPillF  { animation: cPillF 10s linear infinite; }
+      .cFill   { animation: cFill 10s linear infinite; }
+      .cE1 { animation: cE1 10s linear infinite; }
+      .cE2 { animation: cE2 10s linear infinite; }
+      .cE3 { animation: cE3 10s linear infinite; }
+      .cR1 { animation: cR1 10s linear infinite; }
+      .cR2 { animation: cR2 10s linear infinite; }
+      .cLinger { animation: cLinger 10s linear infinite; }
+
+      @keyframes cAccent { 0%, 6.5% { fill: #f2504a; } 7%, 85.5% { fill: #4b93ff; } 86.5%, 100% { fill: #f2504a; } }
+      @keyframes cDot { 0%, 6.5% { opacity: 1; } 7%, 85.5% { opacity: 0; } 86%, 100% { opacity: 1; } }
+      @keyframes cSpinG { 0%, 69.5% { opacity: 0; } 70%, 85.4% { opacity: 1; } 85.9%, 100% { opacity: 0; } }
+      @keyframes cPillR { 0%, 6.5% { opacity: 0; } 7%, 85.4% { opacity: 1; } 86.2%, 100% { opacity: 0; } }
+      @keyframes cPillF { 0%, 6.5% { opacity: 1; } 7%, 85.6% { opacity: 0; } 86.4%, 100% { opacity: 1; } }
+      @keyframes cFill {
+        0%, 6.5%  { transform: scaleX(1); fill: url(#barRed); }
+        7%        { transform: scaleX(0); fill: url(#barBlue); }
+        69.5%     { transform: scaleX(0); fill: url(#barBlue); }
+        75%       { transform: scaleX(.4); }
+        85.5%     { transform: scaleX(.4); fill: url(#barBlue); }
+        85.6%     { fill: url(#barRed); }
+        91%       { transform: scaleX(1); }
+        100%      { transform: scaleX(1); fill: url(#barRed); }
+      }
+      @keyframes cE1 { 0%, 6.5% { opacity: 0; } 7%, 77.8% { opacity: 1; } 78.2%, 100% { opacity: 0; } }
+      @keyframes cE2 { 0%, 77.8% { opacity: 0; } 78.2%, 85.5% { opacity: 1; } 86%, 100% { opacity: 0; } }
+      @keyframes cE3 { 0%, 6.5% { opacity: 1; } 7%, 85.6% { opacity: 0; } 86.1%, 100% { opacity: 1; } }
+      @keyframes cR1 { 0%, 6.5% { opacity: 0; } 7%, 85.5% { opacity: 1; } 86%, 100% { opacity: 0; } }
+      @keyframes cR2 { 0%, 6.5% { opacity: 1; } 7%, 85.6% { opacity: 0; } 86.1%, 100% { opacity: 1; } }
+      @keyframes cLinger {
+        0%, 6.5% { opacity: .5; transform: scaleX(.72); }
+        7%       { opacity: 0; transform: scaleX(.72); }
+        86.3%    { opacity: 0; transform: scaleX(1); }
+        86.9%    { opacity: .5; transform: scaleX(1); }
+        100%     { opacity: .5; transform: scaleX(.72); }
+      }
+
+      /* running glyphs */
+      .spin  { animation: spin .9s linear infinite; }
+      /* two animation-bearing classes on one element: the shorthand has to list both */
+      .aSpinS.spin { animation: aSpinS 10s linear infinite, spin .9s linear infinite; }
+      .pulse { animation: pulse 1.6s ease-in-out infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.7); } }
+
+      /* ---------- the three steps in the left column ---------- */
+      .step1c { animation: s1c 10s linear infinite; }
+      .step1n { animation: s1n 10s linear infinite; }
+      .step1l { animation: s1l 10s linear infinite; }
+      .step2c { animation: s2c 10s linear infinite; }
+      .step2n { animation: s2n 10s linear infinite; }
+      .step2l { animation: s2l 10s linear infinite; }
+      .step3c { animation: s3c 10s linear infinite; }
+      .step3n { animation: s3n 10s linear infinite; }
+      .step3l { animation: s3l 10s linear infinite; }
+      .conn1  { animation: conn1 10s cubic-bezier(.16,1,.3,1) infinite; }
+      .conn2  { animation: conn2 10s cubic-bezier(.16,1,.3,1) infinite; }
+
+      @keyframes s1c {
+        0%, 4.5% { fill: #161b22; stroke: #30363d; }
+        5.5%, 26% { fill: rgba(75,147,255,.16); stroke: #4b93ff; }
+        28%, 100% { fill: #161b22; stroke: #30363d; }
+      }
+      @keyframes s1n { 0%, 4.5% { fill: #6e7681; } 5.5%, 26% { fill: #cfe3ff; } 28%, 100% { fill: #6e7681; } }
+      @keyframes s1l { 0%, 4.5% { fill: #7d8590; } 5.5%, 26% { fill: #f0f6fc; } 28%, 100% { fill: #7d8590; } }
+      @keyframes s2c {
+        0%, 27%   { fill: #161b22; stroke: #30363d; }
+        29.5%     { fill: rgba(75,147,255,.16); stroke: #4b93ff; }
+        53%       { fill: rgba(75,147,255,.16); stroke: #4b93ff; }
+        55%, 100% { fill: #161b22; stroke: #30363d; }
+      }
+      @keyframes s2n { 0%, 27% { fill: #6e7681; } 29.5% { fill: #cfe3ff; } 53% { fill: #cfe3ff; } 55%, 100% { fill: #6e7681; } }
+      @keyframes s2l { 0%, 27% { fill: #7d8590; } 29.5% { fill: #f0f6fc; } 53% { fill: #f0f6fc; } 55%, 100% { fill: #7d8590; } }
+      @keyframes s3c {
+        0%, 4%    { fill: rgba(75,147,255,.16); stroke: #4b93ff; }
+        5%, 54%   { fill: #161b22; stroke: #30363d; }
+        56.5%, 100% { fill: rgba(75,147,255,.16); stroke: #4b93ff; }
+      }
+      @keyframes s3n { 0%, 4% { fill: #cfe3ff; } 5%, 54% { fill: #6e7681; } 56.5%, 100% { fill: #cfe3ff; } }
+      @keyframes s3l { 0%, 4% { fill: #f0f6fc; } 5%, 54% { fill: #7d8590; } 56.5%, 100% { fill: #f0f6fc; } }
+      @keyframes conn1 {
+        0%, 4%   { transform: scaleY(1); opacity: .75; }
+        5%       { transform: scaleY(1); opacity: 0; }
+        5.4%     { transform: scaleY(0); opacity: 0; }
+        5.5%, 26% { transform: scaleY(0); opacity: .75; }
+        30%, 100% { transform: scaleY(1); opacity: .75; }
+      }
+      @keyframes conn2 {
+        0%, 4%   { transform: scaleY(1); opacity: .75; }
+        5%       { transform: scaleY(1); opacity: 0; }
+        5.4%     { transform: scaleY(0); opacity: 0; }
+        5.5%, 53% { transform: scaleY(0); opacity: .75; }
+        57%, 100% { transform: scaleY(1); opacity: .75; }
+      }
+    }
+  </style>
+
+  <g clip-path="url(#screen)">
+
+    <!-- ============================ backdrop ============================ -->
+    <rect x="0" y="0" width="820" height="500" fill="url(#desk)"/>
+    <rect x="0" y="0" width="820" height="500" fill="url(#dots)"/>
+    <ellipse cx="140" cy="30" rx="440" ry="330" fill="url(#glowBlue)"/>
+    <ellipse cx="700" cy="40" rx="320" ry="240" fill="url(#glowViolet)"/>
+    <ellipse cx="740" cy="480" rx="360" ry="260" fill="url(#glowGreen)"/>
+    <rect x="0" y="0" width="820" height="150" fill="url(#sheen)"/>
+
+    <!-- ========================== left column =========================== -->
+    <g>
+      <!-- the mark: the same progress ring the cards use -->
+      <circle cx="67" cy="75" r="34" fill="url(#markGlow)"/>
+      <circle cx="67" cy="75" r="21" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="7.5"/>
+      <g transform="translate(67,75)">
+        <circle class="ring" r="21" fill="none" stroke="url(#arc)" stroke-width="7.5"
+                stroke-linecap="round" stroke-dasharray="95 37"/>
+      </g>
+
+      <text x="40" y="152" font-size="31" font-weight="700" fill="#f0f6fc" letter-spacing="-0.6">Progressy</text>
+      <text x="41" y="180" font-size="12.5" fill="#8b949e">Watches your GitHub Actions and slides a card</text>
+      <text x="41" y="198" font-size="12.5" fill="#8b949e">onto your screen the moment one starts.</text>
+
+      <!-- three steps, lit one at a time -->
+      <g transform="translate(52,267)"><rect x="-1" y="0" width="2" height="20" fill="#21262d"/>
+        <rect class="conn1" x="-1" y="0" width="2" height="20" fill="#4b93ff" opacity="0.75"/></g>
+      <g transform="translate(52,313)"><rect x="-1" y="0" width="2" height="20" fill="#21262d"/>
+        <rect class="conn2" x="-1" y="0" width="2" height="20" fill="#4b93ff" opacity="0.75"/></g>
+
+      <circle class="step1c" cx="52" cy="254" r="13" fill="rgba(75,147,255,.16)" stroke="#4b93ff" stroke-width="1.2"/>
+      <text class="step1n" x="52" y="258" font-size="11" font-weight="600" fill="#cfe3ff" text-anchor="middle">1</text>
+      <text class="step1l" x="78" y="258.5" font-size="12.5" font-weight="500" fill="#f0f6fc">Connect</text>
+
+      <circle class="step2c" cx="52" cy="300" r="13" fill="#161b22" stroke="#30363d" stroke-width="1.2"/>
+      <text class="step2n" x="52" y="304" font-size="11" font-weight="600" fill="#6e7681" text-anchor="middle">2</text>
+      <text class="step2l" x="78" y="304.5" font-size="12.5" font-weight="500" fill="#7d8590">Choose what you watch</text>
+
+      <circle class="step3c" cx="52" cy="346" r="13" fill="rgba(75,147,255,.16)" stroke="#4b93ff" stroke-width="1.2"/>
+      <text class="step3n" x="52" y="350" font-size="11" font-weight="600" fill="#cfe3ff" text-anchor="middle">3</text>
+      <text class="step3l" x="78" y="350.5" font-size="12.5" font-weight="500" fill="#f0f6fc">See every run, live</text>
+
+      <text x="41" y="452" font-size="10.5" fill="#586069">MIT · macOS, Windows &amp; Linux</text>
+    </g>
+
+    <!-- ===================== the app window (acts 1-2) ==================== -->
+    <g id="win" transform="translate(364,56)" filter="url(#winShadow)">
+      <rect x="0" y="0" width="440" height="372" rx="13" fill="#0d1117"/>
+
+      <g clip-path="url(#clipWin)">
+
+        <!-- ===================== act 1: connect ===================== -->
+        <g id="login">
+          <rect x="0" y="0" width="440" height="372" fill="url(#loginBg)"/>
+
+          <g transform="translate(207,72) scale(1.625)" fill="#f0f6fc" opacity="0.9">
+            <path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+          </g>
+
+          <text x="220" y="129" font-size="17" font-weight="600" fill="#f0f6fc" text-anchor="middle" letter-spacing="-0.2">Connect Progressy</text>
+          <text x="220" y="153" font-size="12.5" fill="#8b949e" text-anchor="middle">It watches your workflow runs and shows a</text>
+          <text x="220" y="171" font-size="12.5" fill="#8b949e" text-anchor="middle">card the moment one starts.</text>
+
+          <rect x="60" y="196" width="320" height="38" rx="9" fill="url(#btnBg)" stroke="#ffffff" stroke-opacity="0.12"/>
+          <rect class="btnHot" x="60" y="196" width="320" height="38" rx="9" fill="url(#btnBgHot)" stroke="#ffffff" stroke-opacity="0.2"/>
+          <text x="220" y="220" font-size="13" font-weight="600" fill="#f0f6fc" text-anchor="middle">Create a token on GitHub</text>
+
+          <text x="220" y="252" font-size="11" fill="#8b949e" text-anchor="middle">Opens GitHub with <tspan class="m" fill="#adbac7">repo</tspan> and <tspan class="m" fill="#adbac7">workflow</tspan> already ticked.</text>
+          <text x="220" y="268" font-size="11" fill="#8b949e" text-anchor="middle">Progressy notices it on your clipboard and signs you in.</text>
+
+          <rect x="60" y="290" width="240" height="26" rx="8" fill="#0d1117" stroke="#30363d"/>
+          <rect class="inArmed" x="60" y="290" width="240" height="26" rx="8" fill="#0d1117" stroke="#2ea043"/>
+          <text class="inPlace" x="70" y="307.5" font-size="12" fill="#6e7681">…or paste it here</text>
+          <text class="inDots m" x="70" y="308.5" font-size="12" fill="#adbac7">••••••••••••••••</text>
+          <rect x="308" y="290" width="72" height="26" rx="8" fill="#238636"/>
+          <text x="344" y="307.5" font-size="12" font-weight="600" fill="#ffffff" text-anchor="middle">Connect</text>
+
+          <!-- the token arriving from the clipboard -->
+          <g class="chip" transform="translate(102,289)">
+            <rect x="0" y="0" width="156" height="26" rx="13" fill="#131d2b"/>
+            <rect x="0" y="0" width="156" height="26" rx="13" fill="#58a6ff" fill-opacity="0.12"
+                  stroke="#58a6ff" stroke-opacity="0.55" stroke-dasharray="4 3"/>
+            <g transform="translate(11,7) scale(0.75)" fill="none" stroke="#7fb4ff" stroke-width="1.4">
+              <rect x="1.6" y="2.6" width="12.8" height="12.4" rx="2.2"/>
+              <rect x="5" y="1" width="6" height="3.2" rx="1.2" fill="#7fb4ff" stroke="none"/>
+            </g>
+            <text class="m" x="30" y="17.5" font-size="11" fill="#e6edf3">ghp_A1b2•••••••</text>
+          </g>
+
+          <text class="noticeA" x="220" y="342" font-size="11.5" fill="#8b949e" text-anchor="middle">Token found on your clipboard — connecting…</text>
+          <g class="noticeB">
+            <circle cx="141" cy="338" r="8" fill="#35b45f" fill-opacity="0.18" stroke="#35b45f" stroke-opacity="0.7"/>
+            <path d="M137.4 338.2 L140 340.8 L145 335.4" fill="none" stroke="#35b45f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <text x="156" y="342" font-size="11.5" fill="#adb6c0">Signed in as sietzekeuning</text>
+          </g>
+        </g>
+
+        <!-- ===================== act 2: filter ====================== -->
+        <g id="settings">
+          <line x1="0" y1="38.5" x2="440" y2="38.5" stroke="#21262d"/>
+          <text x="78" y="23.5" font-size="12" font-weight="600" fill="#e6edf3" letter-spacing="-0.1">Progressy</text>
+          <text x="396" y="23.5" font-size="11" fill="#7d8590" text-anchor="end">settings</text>
+          <rect x="404" y="7" width="24" height="24" rx="6" fill="#21262d"/>
+          <g transform="translate(409,12) scale(0.875)" fill="#58a6ff">
+            <path d="M8 0a8.2 8.2 0 0 1 1.4.13.75.75 0 0 1 .6.6l.21 1.2c.29.12.57.27.83.44l1.14-.42a.75.75 0 0 1 .82.22c.37.43.68.92.92 1.44a.75.75 0 0 1-.14.84l-.83.88a5.7 5.7 0 0 1 0 .96l.83.88c.22.23.28.57.14.84-.24.52-.55 1.01-.92 1.44a.75.75 0 0 1-.82.22l-1.14-.42c-.26.17-.54.32-.83.44l-.21 1.2a.75.75 0 0 1-.6.6 8.2 8.2 0 0 1-2.8 0 .75.75 0 0 1-.6-.6l-.21-1.2a5.5 5.5 0 0 1-.83-.44l-1.14.42a.75.75 0 0 1-.82-.22 7.4 7.4 0 0 1-.92-1.44.75.75 0 0 1 .14-.84l.83-.88a5.7 5.7 0 0 1 0-.96l-.83-.88a.75.75 0 0 1-.14-.84c.24-.52.55-1.01.92-1.44a.75.75 0 0 1 .82-.22l1.14.42c.26-.17.54-.32.83-.44l.21-1.2a.75.75 0 0 1 .6-.6A8.2 8.2 0 0 1 8 0Zm0 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm0 1.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z"/>
+          </g>
+
+          <!-- account -->
+          <circle cx="32" cy="66" r="15" fill="#21262d"/>
+          <g transform="translate(23,57) scale(1.125)" fill="#6e7681"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></g>
+          <text x="56" y="63" font-size="13" font-weight="600" fill="#f0f6fc">sietzekeuning</text>
+          <text x="56" y="78" font-size="10.5" fill="#7d8590">repo, workflow</text>
+          <rect x="352" y="54" width="74" height="24" rx="7" fill="none" stroke="#30363d"/>
+          <text x="389" y="70" font-size="11" fill="#c9d1d9" text-anchor="middle">Sign out</text>
+
+          <line x1="14" y1="94.5" x2="426" y2="94.5" stroke="#1c2129"/>
+
+          <!-- triggered by -->
+          <text x="14" y="115" font-size="11" font-weight="600" fill="#7d8590" letter-spacing="0.66">TRIGGERED BY</text>
+          <rect x="14" y="124" width="412" height="30" rx="9" fill="#161b22" stroke="#21262d"/>
+          <g transform="translate(17,127)">
+            <rect class="segPill" x="0" y="0" width="133.3" height="24" rx="6" fill="#2b3440"/>
+          </g>
+          <text x="83.7" y="144" font-size="11" fill="#8b949e" text-anchor="middle">Anyone</text>
+          <text class="segLblA" x="83.7" y="144" font-size="11" fill="#f0f6fc" text-anchor="middle">Anyone</text>
+          <text x="220" y="144" font-size="11" fill="#8b949e" text-anchor="middle">Only me</text>
+          <text class="segLblB" x="220" y="144" font-size="11" fill="#f0f6fc" text-anchor="middle">Only me</text>
+          <text x="356.3" y="144" font-size="11" fill="#8b949e" text-anchor="middle">Specific people</text>
+
+          <text class="noteA" x="14" y="173" font-size="10.5" fill="#6e7681">Every run in the repositories below shows up.</text>
+          <text class="noteB" x="14" y="173" font-size="10.5" fill="#6e7681">Only runs triggered by sietzekeuning.</text>
+
+          <line x1="14" y1="187.5" x2="426" y2="187.5" stroke="#1c2129"/>
+
+          <!-- repositories -->
+          <text x="14" y="207" font-size="11" font-weight="600" fill="#7d8590" letter-spacing="0.66">REPOSITORIES</text>
+          <text class="cntA" x="426" y="207" font-size="10.5" fill="#6e7681" text-anchor="end">auto</text>
+          <text class="cntB" x="426" y="207" font-size="10.5" fill="#6e7681" text-anchor="end">3 watched</text>
+          <rect x="14" y="216" width="412" height="26" rx="7" fill="#0d1117" stroke="#30363d"/>
+          <text x="24" y="233.5" font-size="11.5" fill="#6e7681">Search repositories</text>
+
+          <g>
+            <rect class="rowHl rowHl1" x="8" y="250" width="424" height="24" rx="6" fill="#161b22"/>
+            <g transform="translate(23,262)"><g class="cpop1">
+              <rect class="cbox1" x="-7" y="-7" width="14" height="14" rx="3.5" fill="#ffffff"/>
+              <path class="ck1" d="M-3.8 0.2 L-1.1 2.9 L3.8 -2.8" fill="none" stroke="#ffffff" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="13" stroke-dashoffset="13"/>
+            </g></g>
+            <text x="40" y="266" font-size="11.5" fill="#c9d1d9">sietzekeuning/vvw-site</text>
+
+            <rect class="rowHl rowHl2" x="8" y="276" width="424" height="24" rx="6" fill="#161b22"/>
+            <g transform="translate(23,288)"><g class="cpop2">
+              <rect class="cbox2" x="-7" y="-7" width="14" height="14" rx="3.5" fill="#ffffff"/>
+              <path class="ck2" d="M-3.8 0.2 L-1.1 2.9 L3.8 -2.8" fill="none" stroke="#ffffff" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="13" stroke-dashoffset="13"/>
+            </g></g>
+            <text x="40" y="292" font-size="11.5" fill="#c9d1d9">sietzekeuning/marmaya</text>
+            <rect x="386" y="281" width="40" height="15" rx="5" fill="#21262d"/>
+            <text x="406" y="291.5" font-size="9.5" fill="#7d8590" text-anchor="middle">private</text>
+
+            <rect class="rowHl rowHl3" x="8" y="302" width="424" height="24" rx="6" fill="#161b22"/>
+            <g transform="translate(23,314)"><g class="cpop3">
+              <rect class="cbox3" x="-7" y="-7" width="14" height="14" rx="3.5" fill="#ffffff"/>
+              <path class="ck3" d="M-3.8 0.2 L-1.1 2.9 L3.8 -2.8" fill="none" stroke="#ffffff" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="13" stroke-dashoffset="13"/>
+            </g></g>
+            <text x="40" y="318" font-size="11.5" fill="#c9d1d9">sietzekeuning/pos</text>
+            <rect x="386" y="307" width="40" height="15" rx="5" fill="#21262d"/>
+            <text x="406" y="317.5" font-size="9.5" fill="#7d8590" text-anchor="middle">private</text>
+
+            <g transform="translate(23,340)">
+              <rect x="-7" y="-7" width="14" height="14" rx="3.5" fill="#ffffff"/>
+            </g>
+            <text x="40" y="344" font-size="11.5" fill="#c9d1d9">sietzekeuning/progressy</text>
+
+            <g transform="translate(23,366)">
+              <rect x="-7" y="-7" width="14" height="14" rx="3.5" fill="#ffffff"/>
+            </g>
+            <text x="40" y="370" font-size="11.5" fill="#c9d1d9">acme/checkout</text>
+            <rect x="0" y="346" width="440" height="26" fill="url(#listFade)"/>
+          </g>
+        </g>
+      </g>
+
+      <!-- window chrome, always on top of the content -->
+      <rect x="0.5" y="0.5" width="439" height="371" rx="12.5" fill="none" stroke="#21262d"/>
+      <circle cx="18" cy="19" r="5.5" fill="#ff5f57" opacity="0.92"/>
+      <circle cx="36" cy="19" r="5.5" fill="#febc2e" opacity="0.92"/>
+      <circle cx="54" cy="19" r="5.5" fill="#28c840" opacity="0.92"/>
+    </g>
+
+    <!-- ======================= act 3: the cards ========================= -->
+
+    <!-- card A — queued, then running, then passed -->
+    <g id="cardA" transform="translate(396,56)">
+      <g filter="url(#shadow)">
+        <g clip-path="url(#clipCardS)">
+          <rect x="0" y="0" width="408" height="94" rx="14" fill="url(#cardBg)" fill-opacity="0.97"/>
+          <rect class="aAccent" x="0" y="0" width="3" height="94" fill="#35b45f" opacity="0.9"/>
+          <rect class="aAccent" x="3" y="0" width="3" height="94" fill="#35b45f" opacity="0.16"/>
+          <rect class="aAccent" x="6" y="0" width="5" height="94" fill="#35b45f" opacity="0.07"/>
+
+          <circle class="aDot" cx="22" cy="21" r="3.5" fill="#35b45f"/>
+          <g class="aSpinG" transform="translate(22,21)">
+            <circle class="aSpinS" r="5.5" fill="none" stroke="#4b93ff" stroke-opacity="0.22" stroke-width="1.6"/>
+            <circle class="aSpinS spin" r="5.5" fill="none" stroke="#4b93ff" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="9 26"/>
+          </g>
+          <text x="35" y="25.5" font-size="13" font-weight="600" fill="#f0f6fc" letter-spacing="-0.1">CI/CD</text>
+
+          <g class="aPillQ">
+            <rect x="301" y="12" width="68" height="18" rx="9" fill="#d0a12c" fill-opacity="0.16" stroke="#d0a12c" stroke-opacity="0.45"/>
+            <g transform="translate(312,21)"><circle class="pulse" r="2.5" fill="#d8b252"/></g>
+            <text x="321" y="24.5" font-size="10" font-weight="650" fill="#d8b252" letter-spacing="0.4">QUEUED</text>
+          </g>
+          <g class="aPillR">
+            <rect x="294" y="12" width="75" height="18" rx="9" fill="#4b93ff" fill-opacity="0.16" stroke="#4b93ff" stroke-opacity="0.45"/>
+            <g transform="translate(305,21)"><circle class="pulse" r="2.5" fill="#6ba7ff"/></g>
+            <text x="314" y="24.5" font-size="10" font-weight="650" fill="#6ba7ff" letter-spacing="0.4">RUNNING</text>
+          </g>
+          <g class="aPillP">
+            <rect x="311" y="12" width="58" height="18" rx="9" fill="#35b45f" fill-opacity="0.16" stroke="#35b45f" stroke-opacity="0.45"/>
+            <text x="340" y="24.5" font-size="10" font-weight="650" fill="#59c17c" text-anchor="middle" letter-spacing="0.4">PASSED</text>
+          </g>
+          <g transform="translate(386,21)" stroke="#8b949e" stroke-opacity="0.55" stroke-width="1.6" stroke-linecap="round">
+            <path d="M-4 -4 L4 4 M4 -4 L-4 4"/>
+          </g>
+
+          <g transform="translate(16,34) scale(0.75)" fill="#8b949e" opacity="0.7"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8Z"/></g>
+          <text x="33" y="44" font-size="11" fill="#8b949e">sietzekeuning/vvw-site</text>
+          <rect x="168" y="35" width="36" height="15" rx="5" fill="#ffffff" fill-opacity="0.06"/>
+          <text class="m" x="186" y="45.5" font-size="10" fill="#a9b3bd" text-anchor="middle">main</text>
+
+          <rect x="16" y="58" width="376" height="4" rx="2" fill="#ffffff" fill-opacity="0.08"/>
+          <g transform="translate(16,58)"><rect class="aFill" x="0" y="0" width="376" height="4" rx="2" fill="url(#barGreen)"/></g>
+
+          <text class="aE0 m" x="16" y="77" font-size="10.5" fill="#9aa4ae">00:02</text>
+          <text class="aE1 m" x="16" y="77" font-size="10.5" fill="#9aa4ae">00:04</text>
+          <text class="aE2 m" x="16" y="77" font-size="10.5" fill="#9aa4ae">00:08</text>
+          <text class="aE3 m" x="16" y="77" font-size="10.5" fill="#9aa4ae">00:11</text>
+          <text class="aR3 m" x="16" y="77" font-size="10.5" fill="#9aa4ae">Took 12s</text>
+          <text class="aR1" x="392" y="77" font-size="10.5" fill="#7d8590" text-anchor="end">1/3 jobs</text>
+          <text class="aR2" x="392" y="77" font-size="10.5" fill="#7d8590" text-anchor="end">2/3 jobs</text>
+          <text class="aR3" x="392" y="77" font-size="10.5" fill="#7d8590" text-anchor="end">3 jobs</text>
+
+          <g transform="translate(0,92)"><rect class="aLinger" x="0" y="0" width="408" height="2" fill="#35b45f" opacity="0.5"/></g>
+        </g>
+        <path d="M14 0.75 H394" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1.5"/>
+        <rect x="0.5" y="0.5" width="407" height="93" rx="13.5" fill="none" stroke="#ffffff" stroke-opacity="0.09"/>
+      </g>
+    </g>
+
+    <!-- card B — running, with the time based progress bar -->
+    <g id="cardB" transform="translate(396,166)">
+      <g filter="url(#shadow)">
+        <g clip-path="url(#clipCardT)">
+          <rect x="0" y="0" width="408" height="114" rx="14" fill="url(#cardBg)" fill-opacity="0.97"/>
+          <rect x="0" y="0" width="3" height="114" fill="#4b93ff" opacity="0.9"/>
+          <rect x="3" y="0" width="3" height="114" fill="#4b93ff" opacity="0.16"/>
+          <rect x="6" y="0" width="5" height="114" fill="#4b93ff" opacity="0.07"/>
+
+          <g transform="translate(22,21)">
+            <circle r="5.5" fill="none" stroke="#4b93ff" stroke-opacity="0.22" stroke-width="1.6"/>
+            <circle class="spin" r="5.5" fill="none" stroke="#4b93ff" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="9 26"/>
+          </g>
+          <text x="35" y="25.5" font-size="13" font-weight="600" fill="#f0f6fc" letter-spacing="-0.1">production</text>
+
+          <rect x="294" y="12" width="75" height="18" rx="9" fill="#4b93ff" fill-opacity="0.16" stroke="#4b93ff" stroke-opacity="0.45"/>
+          <g transform="translate(305,21)"><circle class="pulse" r="2.5" fill="#6ba7ff"/></g>
+          <text x="314" y="24.5" font-size="10" font-weight="650" fill="#6ba7ff" letter-spacing="0.4">RUNNING</text>
+          <g transform="translate(386,21)" stroke="#8b949e" stroke-opacity="0.55" stroke-width="1.6" stroke-linecap="round">
+            <path d="M-4 -4 L4 4 M4 -4 L-4 4"/>
+          </g>
+
+          <g transform="translate(16,34) scale(0.75)" fill="#8b949e" opacity="0.7"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8Z"/></g>
+          <text x="33" y="44" font-size="11" fill="#8b949e">sietzekeuning/pos</text>
+          <rect x="139" y="35" width="48" height="15" rx="5" fill="#ffffff" fill-opacity="0.06"/>
+          <text class="m" x="163" y="45.5" font-size="10" fill="#a9b3bd" text-anchor="middle">master</text>
+
+          <text x="16" y="66" font-size="11.5" fill="#7fb4ff">deploy → Run php artisan migrate --force</text>
+
+          <rect x="16" y="78" width="376" height="4" rx="2" fill="#ffffff" fill-opacity="0.08"/>
+          <g transform="translate(16,78)"><rect class="bFill" x="0" y="0" width="376" height="4" rx="2" fill="url(#barBlue)"/></g>
+
+          <text class="bE1 m" x="16" y="97" font-size="10.5" fill="#9aa4ae">03:47</text>
+          <text class="bE2 m" x="16" y="97" font-size="10.5" fill="#9aa4ae">03:48</text>
+          <text class="bE3 m" x="16" y="97" font-size="10.5" fill="#9aa4ae">03:49</text>
+          <text class="bE4 m" x="16" y="97" font-size="10.5" fill="#9aa4ae">03:50</text>
+          <text class="bE1" x="392" y="97" font-size="10.5" fill="#7d8590" text-anchor="end">~2m 5s left · 3/4 jobs</text>
+          <text class="bE2" x="392" y="97" font-size="10.5" fill="#7d8590" text-anchor="end">~2m 4s left · 3/4 jobs</text>
+          <text class="bE3" x="392" y="97" font-size="10.5" fill="#7d8590" text-anchor="end">~2m 3s left · 3/4 jobs</text>
+          <text class="bE4" x="392" y="97" font-size="10.5" fill="#7d8590" text-anchor="end">~2m 2s left · 3/4 jobs</text>
+        </g>
+        <path d="M14 0.75 H394" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1.5"/>
+        <rect x="0.5" y="0.5" width="407" height="113" rx="13.5" fill="none" stroke="#ffffff" stroke-opacity="0.09"/>
+      </g>
+    </g>
+
+    <!-- card C — running, then failed -->
+    <g id="cardC" transform="translate(396,296)">
+      <g filter="url(#shadow)">
+        <g clip-path="url(#clipCardS)">
+          <rect x="0" y="0" width="408" height="94" rx="14" fill="url(#cardBg)" fill-opacity="0.97"/>
+          <rect class="cAccent" x="0" y="0" width="3" height="94" fill="#f2504a" opacity="0.9"/>
+          <rect class="cAccent" x="3" y="0" width="3" height="94" fill="#f2504a" opacity="0.16"/>
+          <rect class="cAccent" x="6" y="0" width="5" height="94" fill="#f2504a" opacity="0.07"/>
+
+          <circle class="cDot" cx="22" cy="21" r="3.5" fill="#f2504a"/>
+          <g class="cSpinG" transform="translate(22,21)">
+            <circle r="5.5" fill="none" stroke="#4b93ff" stroke-opacity="0.22" stroke-width="1.6"/>
+            <circle class="spin" r="5.5" fill="none" stroke="#4b93ff" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="9 26"/>
+          </g>
+          <text x="35" y="25.5" font-size="13" font-weight="600" fill="#f0f6fc" letter-spacing="-0.1">Deploy to production</text>
+
+          <g class="cPillR">
+            <rect x="294" y="12" width="75" height="18" rx="9" fill="#4b93ff" fill-opacity="0.16" stroke="#4b93ff" stroke-opacity="0.45"/>
+            <g transform="translate(305,21)"><circle class="pulse" r="2.5" fill="#6ba7ff"/></g>
+            <text x="314" y="24.5" font-size="10" font-weight="650" fill="#6ba7ff" letter-spacing="0.4">RUNNING</text>
+          </g>
+          <g class="cPillF">
+            <rect x="311" y="12" width="58" height="18" rx="9" fill="#f2504a" fill-opacity="0.16" stroke="#f2504a" stroke-opacity="0.45"/>
+            <text x="340" y="24.5" font-size="10" font-weight="650" fill="#f46f6b" text-anchor="middle" letter-spacing="0.4">FAILED</text>
+          </g>
+          <g transform="translate(386,21)" stroke="#8b949e" stroke-opacity="0.55" stroke-width="1.6" stroke-linecap="round">
+            <path d="M-4 -4 L4 4 M4 -4 L-4 4"/>
+          </g>
+
+          <g transform="translate(16,34) scale(0.75)" fill="#8b949e" opacity="0.7"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8Z"/></g>
+          <text x="33" y="44" font-size="11" fill="#8b949e">sietzekeuning/marmaya</text>
+          <rect x="162" y="35" width="102" height="15" rx="5" fill="#ffffff" fill-opacity="0.06"/>
+          <text class="m" x="213" y="45.5" font-size="10" fill="#a9b3bd" text-anchor="middle">release/2026-08</text>
+
+          <rect x="16" y="58" width="376" height="4" rx="2" fill="#ffffff" fill-opacity="0.08"/>
+          <g transform="translate(16,58)"><rect class="cFill" x="0" y="0" width="376" height="4" rx="2" fill="url(#barRed)"/></g>
+
+          <text class="cE1 m" x="16" y="77" font-size="10.5" fill="#9aa4ae">00:06</text>
+          <text class="cE2 m" x="16" y="77" font-size="10.5" fill="#9aa4ae">00:12</text>
+          <text class="cE3 m" x="16" y="77" font-size="10.5" fill="#9aa4ae">Took 14s</text>
+          <text class="cR1" x="392" y="77" font-size="10.5" fill="#7d8590" text-anchor="end">2/5 jobs</text>
+          <text class="cR2" x="392" y="77" font-size="10.5" fill="#7d8590" text-anchor="end">5 jobs</text>
+
+          <g transform="translate(0,92)"><rect class="cLinger" x="0" y="0" width="408" height="2" fill="#f2504a" opacity="0.5"/></g>
+        </g>
+        <path d="M14 0.75 H394" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1.5"/>
+        <rect x="0.5" y="0.5" width="407" height="93" rx="13.5" fill="none" stroke="#ffffff" stroke-opacity="0.09"/>
+      </g>
+    </g>
+
+    <!-- ===================== pointer + loop progress ==================== -->
+    <g id="cursor" transform="translate(584,271)">
+      <circle class="ripple" cx="0" cy="0" r="11" fill="#ffffff" opacity="0"/>
+      <path d="M0 0 L0 17.5 L4.4 13.6 L7.1 19.2 L9.8 17.9 L7.1 12.4 L12.4 12.2 Z"
+            fill="#f0f6fc" stroke="#0b0e13" stroke-width="1.1" stroke-linejoin="round"/>
+    </g>
+
+    <rect class="loopbar" x="0" y="496" width="820" height="4" fill="#4b93ff" opacity="0.5"/>
+
+    <rect x="0.5" y="0.5" width="819" height="499" rx="14.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+  </g>
+</svg>
